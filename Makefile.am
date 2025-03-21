@@ -7,6 +7,7 @@ noinst_PROGRAMS = unrotated_square \
                   rotated_square \
                   rotated_square_upgraded \
                   circular_disc \
+                  matthias_disk_explorer \
                   hexagon \
                   circular_sector \
                   sector_corner_modes \
@@ -32,6 +33,8 @@ rotated_square_upgraded_SOURCES = \
  rotated_square_upgraded.cc
 circular_disc_SOURCES = \
  circular_disc.cc
+matthias_disk_explorer_SOURCES = \
+ matthias_disk_explorer.cc
 hexagon_SOURCES = \
  hexagon.cc
 circular_sector_SOURCES = \
@@ -55,6 +58,8 @@ rotated_square_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
 rotated_square_upgraded_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
 circular_disc_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
+ -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
+matthias_disk_explorer_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
 hexagon_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
