@@ -33,7 +33,11 @@
 #include "generic.h"
 
 // The equations
+#ifdef USE_KS
+#include "c1_koiter_steigmann.h"
+#else
 #include "c1_foeppl_von_karman.h"
+#endif
 
 // The mesh
 #include "meshes/triangle_mesh.h"
@@ -42,6 +46,8 @@ using namespace std;
 using namespace oomph;
 using MathematicalConstants::Pi;
 
+
+
 //==============================================================================
 /// Namespace to deal update triangle meshes to deal with C1 elements
 // hierher this will move into C1_helper.h in src/generic
@@ -49,7 +55,7 @@ using MathematicalConstants::Pi;
 namespace C1Helper
 {
  
- 
+
 //==============================================================================
 // hierher update
 /// Duplicate nodes at corners in order to properly apply boundary
@@ -421,16 +427,71 @@ namespace Parameters
  
  /// Nondimensional thickness of plate
  double Thickness = 0.01;
+
+ #ifdef USE_KS
+ 
+  /// What is this? Shouldn't this be recomputed?
+  double Eta_u = 1.0; // 12.0 * (1.0 - Nu * Nu) / (Thickness * Thickness);
+
+  /// What is this?
+  double Eta_sigma = 1.0;
+
+#else
  
  /// Membrane coupling coefficient (this should really be computed
  /// as a dependent parameter...)
  double Eta = 12.0 * (1.0 - Nu * Nu) / (Thickness * Thickness);
- 
+
+ #endif
+
+
  /// Pressure magnitude
   double P_mag = 0.0;
 
  /// Element area
  double Element_area = 0.5;
+
+ #ifdef USE_KS
+ 
+  /// Traction depending on the position (x,y) and deformation of the sheet
+  void get_traction(const Vector<double>& x,
+		    const Vector<double>& u,
+		    const DenseMatrix<double>& grad_u,
+		    const Vector<double>& n,
+		    Vector<double>& traction)
+  {
+    // Metric tensor of deformed surface
+    DenseMatrix<double> G(2,2,0.0);
+    for(unsigned alpha = 0; alpha < 2; alpha++)
+    {
+      G(alpha, alpha) += 1.0;
+      for (unsigned beta = 0; beta < 2; beta++)
+      {
+        G(alpha, beta) += grad_u(alpha, beta) + grad_u(beta, alpha);
+	for (unsigned i = 0; i < 3; i++)
+	{
+          G(alpha, beta) += grad_u(i, alpha) * grad_u(i, beta);
+	}
+      }
+    }
+
+
+    // hierher Aidan: do we really need this conversion? Also: pressure --> traction
+
+    // hierher pressure --> traction in src too
+    
+    // Find the pressure per undeformed area in terms of the pressure per
+    // deformed area
+    double p = sqrt(G(0,0)*G(1,1) - G(1,0)*G(0,1)) * P_mag;
+    
+    // Assign traction
+    traction.resize(3);
+    traction[0] = p * n[0];
+    traction[1] = p * n[1];
+    traction[2] = p * n[2];
+  }
+
+#else
  
  /// Pressure depending on the position (x,y)
   void get_pressure(const Vector<double>& x, double& pressure)
@@ -446,11 +507,52 @@ namespace Parameters
    tau[1]=0.0;
   }
 
-  /// Get the null function for applying homogenous BCs
-  void null_fct(const Vector<double>& x, double& exact_w)
-  {
-    exact_w = 0.0;
-  }
+ #endif
+
+
+ //===========================================================================
+ /// Class to define zero C0 boundary conditions: f=0 for all zeta.
+ /// Can be used for in-plane FvK displacements.
+ //===========================================================================
+ class ZeroC0BoundaryConditions : public virtual BoundaryConditionForC1PlateBending
+ {
+  
+  /// Implement pure virtual function to specify value of the function
+  // (typically a displacement
+  /// component) as a function of zeta, the 1D coordinate that parametrises the
+  /// boundary
+  virtual double f(const double& zeta)
+   {return 0.0;}
+  
+ };
+ 
+ 
+ 
+ //===========================================================================
+ /// Class to define zero C1 boundary conditions: f=df/dn=0 for all zeta
+ /// Can be used for out-of-plane FvK displacements and all three displacement
+ /// components for Koiter Steigman.
+ //===========================================================================
+ class ZeroC1BoundaryConditions : public virtual BoundaryConditionForC1PlateBending
+ {
+  
+  /// Implement pure virtual function to specify value of the function (typically a
+  /// displacement component) as a function of zeta, the 1D coordinate that parametrises
+  /// the boundary
+  virtual double f(const double& zeta)
+   {return 0.0;}
+  
+  
+  /// Override broken virtual function to specify the normal derivative of the function
+  /// (typically a displacement component) w.r.t zeta, the 1D coordinate that
+  /// parametrises the boundary. This is only needed for genuine C1 quantities
+  /// (or for large-amplitude problems, e.g. Koiter Steigman, where all three
+  /// displacement components need to be C1.
+  virtual double dfdn(const double& zeta)
+   {return 0.0;}
+
+  
+ };
 
 
 }
@@ -464,16 +566,16 @@ namespace Parameters
 /// Problem definition
 //====================================================================
 template<class ELEMENT>
-class UnstructuredFvKProblem : public virtual Problem
+class UnstructuredC1PlateProblem : public virtual Problem
 {
 
 public:
 
   /// Constructor
-  UnstructuredFvKProblem(double const& element_area = 0.09);
+  UnstructuredC1PlateProblem(double const& element_area = 0.09);
 
   /// Destructor
-  ~UnstructuredFvKProblem()
+  ~UnstructuredC1PlateProblem()
   {
     // Close trace file
     Trace_file.close();
@@ -484,6 +586,10 @@ public:
 
   /// Update the problem specs before solve: empty
   void actions_before_newton_solve(){}
+
+ #ifndef USE_KS
+
+  // hierher check dofs for KS; it this type of pinning still correct?
  
   /// Make the problem linear (biharmonic) by pinning all in-plane dofs and
   /// setting eta=0; also readjusts the constraints and and reassigns
@@ -520,6 +626,8 @@ public:
 
   } // End make_linear()
 
+ #endif
+
  
   /// Doc the solution
   void doc_solution(const std::string& comment="");
@@ -529,6 +637,82 @@ public:
   TriangleMesh<ELEMENT>* mesh_pt()
   {
     return Bulk_mesh_pt;
+  }
+
+  
+
+  // check boundary coordinates hierher loop only over boundary nodes!
+  void doc_boundary_coords()
+  {
+  unsigned nb=Bulk_mesh_pt->nboundary();
+  for (unsigned b=0;b<nb;b++)
+   {
+    std::string filename="boundary_coordinate"+to_string(b)+".dat";
+    std::ofstream outfile;
+    outfile.open(filename.c_str());
+    oomph_info << "Checking boundary " << b << std::endl;
+    const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
+    for(unsigned e=0;e<nb_element;e++)
+     {
+      // Get pointer to bulk element adjacent to b
+      ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->boundary_element_pt(b,e));
+      
+      unsigned n_node=el_pt->nnode();
+      for (unsigned n = 0; n < n_node; ++n)
+       {
+        // Get boundary node
+        BoundaryNode<Node>* nod_pt =
+         dynamic_cast<BoundaryNode<Node>*>(el_pt->node_pt(n));
+        if (nod_pt!=0)
+         {
+          std::set<unsigned>* boundaries_pt=0;
+          nod_pt->get_boundaries_pt(boundaries_pt);
+          if (boundaries_pt==0)
+           {
+            oomph_info << "Node n = " << n << " at "
+                       << nod_pt->x(0) << " "
+                       << nod_pt->x(1) << " "
+                       << " is not on any boundary" << std::endl;
+           }
+          else
+           {
+            oomph_info << "Node n = " << n << " at "
+                       << nod_pt->x(0) << " "
+                       << nod_pt->x(1) << " "
+                       << " is on boundaries:";
+            for (auto b :*boundaries_pt)
+             {
+              oomph_info << b << " ";
+             }
+            oomph_info << std::endl;
+            
+           }
+          
+          // Check if it is on the boundary
+          if (nod_pt->is_on_boundary(b))
+           {
+#ifdef PARANOID
+            // We should only have one coordinate on this boundary
+            unsigned nzeta=nod_pt->ncoordinates_on_boundary(b);
+            if (nzeta!=1)
+             {
+              // hierher
+              abort();
+             }
+#endif
+            
+            Vector<double> zeta(nzeta);
+            nod_pt->get_coordinates_on_boundary(b,zeta);            
+            outfile << nod_pt->x(0) << " "
+                    << nod_pt->x(1) << " "
+                    << zeta[0] <<  std::endl;
+            
+           }
+         }
+       }
+     }
+    outfile.close();
+   }
   }
 
 
@@ -552,8 +736,7 @@ private:
   {
     Outer_boundary0 = 0,
     Outer_boundary1 = 1,
-    Inner_boundary0 = 2,
-    Inner_boundary1 = 3
+    Inner_boundary0 = 2
   };
 
   /// Target element area
@@ -573,7 +756,7 @@ private:
 /// Constructor definition
 //======================================================================
 template<class ELEMENT>
-UnstructuredFvKProblem<ELEMENT>::UnstructuredFvKProblem(const double&
+UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
                                                         element_area)
  : Element_area(element_area)
 {
@@ -661,7 +844,10 @@ UnstructuredFvKProblem<ELEMENT>::UnstructuredFvKProblem(const double&
   // Build an assign bulk mesh
   Bulk_mesh_pt=new TriangleMesh<ELEMENT>(mesh_parameters);
 
-
+  // hierher check before
+  doc_boundary_coords();
+  exit(0);
+  
   // Now upgrade to (potentially) curved C1 boundaries 
   //==================================================
   {
@@ -688,12 +874,27 @@ UnstructuredFvKProblem<ELEMENT>::UnstructuredFvKProblem(const double&
    // mesh boundary (only really needed when there are kinks)
    Constraint_mesh_pt = new Mesh();
 
-
    // New general helper function
    C1Helper::duplicate_corner_nodes(Bulk_mesh_pt,
                                     c1_curviline_pt,
                                     Constraint_mesh_pt);
 
+
+   // Reset boundary element lookup scheme
+   Bulk_mesh_pt->setup_boundary_element_info();
+   
+   // Re-setup boundary cooordinates
+   ToleranceForVertexMismatchInPolygons::Tolerable_error=1.0; // hierher
+   unsigned nb=Bulk_mesh_pt->nboundary();
+   for (unsigned b=0;b<nb;b++)
+    {
+     oomph_info
+      << "Setting boundary coordinates for boundary b = " << b
+      << " after splitting elements on boundary and duplicatinig required nodes "
+      << std::endl;
+     Bulk_mesh_pt->template setup_boundary_coordinates<ELEMENT>(b);
+    }
+   
    // New general helper function
    C1Helper::upgrade_edge_elements_to_curved_boundaries(
     Bulk_mesh_pt,
@@ -711,6 +912,8 @@ UnstructuredFvKProblem<ELEMENT>::UnstructuredFvKProblem(const double&
   // End upgrade C1 boundaries
 
   
+
+  
   //Add submeshes to problem
   add_sub_mesh(Bulk_mesh_pt);
   add_sub_mesh(Constraint_mesh_pt);
@@ -719,62 +922,113 @@ UnstructuredFvKProblem<ELEMENT>::UnstructuredFvKProblem(const double&
   build_global_mesh();
 
   // Complete the build of all elements so they are fully functional
+  //================================================================
   unsigned n_element = Bulk_mesh_pt->nelement();
   for(unsigned e=0;e<n_element;e++)
   {
     // Upcast from GeneralisedElement to the present element
     ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(e));
 
-    //Set the pressure function pointers and the physical constants
-    el_pt->pressure_fct_pt() = &Parameters::get_pressure;
-    el_pt->in_plane_forcing_fct_pt() = &Parameters::get_in_plane_traction;
+    //Set the traction and physical constants
+#ifdef USE_KS
+    
+    // hierher: pressure --> traction in src
+    el_pt->pressure_fct_pt() = &Parameters::get_traction;
 
-    // Assign the parameter pointers for the element
+    // hierher why do we need thickness and (two!) etas?
+    el_pt->thickness_pt() = &Parameters::Thickness;
+    el_pt->nu_pt() = &Parameters::Nu;
+    // hierher damping el_pt->mu_pt() = &Parameters::Mu;
+    el_pt->eta_u_pt() = &Parameters::Eta_u;
+    el_pt->eta_sigma_pt() = &Parameters::Eta_sigma;
+
+#else
+    
+    el_pt->pressure_fct_pt() = &Parameters::get_pressure;
     el_pt->nu_pt() = &Parameters::Nu;
     el_pt->eta_pt() = &Parameters::Eta;
-  }
 
+#endif
+  }
+  
+
+  
   // Set the boundary conditions
   //============================
 
-  // Clamp it
+
+
+  // Clamp it // hierher also check pin and sliding clamp
   if (Parameters::Problem_case==Parameters::Clamped_validation)
   {
-    // Set the boundary conditions
-    unsigned nbound = 2;
-    for(unsigned b = 0; b < nbound; b++)
+   
+   // Create vector of pointers to BoundaryConditionForC1PlateBending objects
+   // that specify the imposed displacements along the boundary
+   Vector<BoundaryConditionForC1PlateBending*> boundary_values_pt(3);
+   boundary_values_pt[0]= new Parameters::ZeroC0BoundaryConditions;
+   boundary_values_pt[1]= new Parameters::ZeroC0BoundaryConditions;
+   boundary_values_pt[2]= new Parameters::ZeroC1BoundaryConditions;
+   
+    // Set the boundary conditions on the two outer boundaries
+   unsigned nbound = 2;
+   for(unsigned b = 0; b < nbound; b++)
     {
-      const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
-      for(unsigned e=0;e<nb_element;e++)
+     const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
+     for(unsigned e=0;e<nb_element;e++)
       {
-        // Get pointer to bulk element adjacent to b
-        ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->boundary_element_pt(b,e));
+       // Get pointer to bulk element adjacent to b
+       ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->boundary_element_pt(b,e));
 
-        // A true clamp, so we set everything except the second normal to zero
-        for(unsigned idof=0; idof<6; ++idof)
-        {
-          // Pin both in plane displacements
-          // Cannot set second normal derivative
-          if(idof<2)
-          {
-            el_pt->fix_in_plane_displacement_dof(idof,b,Parameters::null_fct);
-          }
-
-          // Cannot set second normal derivative
-          if(idof!=3)
-          {
-            el_pt->fix_out_of_plane_displacement_dof(idof,b,Parameters::null_fct);
-          }
-        }
+       // Clamp: i.e. pin the in-plane displacements and pin the out-of-plane
+       // displacement and its normal derivatives. We also apply implied
+       // boundary conditions (e.g. specification of dw/dn also implies
+       // d^2w/dn/dzeta etc.
+       // hierher zeta is not necessarily the arclength! translation from
+       // d/dzeta to d/dt requires jacobian!
+       el_pt->fully_clamp_specified_boundary(b,boundary_values_pt);
       }
     }
-  }
+
+   // hierher kill 
+    // // Set the boundary conditions
+    // unsigned nbound = 2;
+    // for(unsigned b = 0; b < nbound; b++)
+    // {
+    //   const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
+    //   for(unsigned e=0;e<nb_element;e++)
+    //   {
+    //     // Get pointer to bulk element adjacent to b
+    //     ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->boundary_element_pt(b,e));
+
+    //     // hierher clarify looping by breaking it up; also i_dof = dof_type
+        
+    //     // A true clamp, so we set everything except the second normal to zero
+    //     for(unsigned idof=0; idof<6; ++idof)
+    //     {
+    //       // Pin both in plane displacements
+    //       // Cannot set second normal derivative
+    //       if(idof<2)
+    //       {
+    //         el_pt->fix_in_plane_displacement_dof(idof,b,Parameters::null_fct);
+    //       }
+
+    //       // Cannot set second normal derivative
+    //       if(idof!=3)
+    //       {
+    //         el_pt->fix_out_of_plane_displacement_dof(idof,b,Parameters::null_fct);
+    //       }
+    //     }
+    //   }
+    // }
+
+       
+    }
   // All other cases: simply pin and stop rotation via the centre
-  else
-  {
-    pin_all_displacements_and_rotation_at_centre_node();
-  }
-  
+   else
+    {
+     pin_all_displacements_and_rotation_at_centre_node();
+    }
+   
   // Update the corner constraints based on the applied
   // boundary conditions
   unsigned n_el = Constraint_mesh_pt->nelement();
@@ -788,6 +1042,10 @@ UnstructuredFvKProblem<ELEMENT>::UnstructuredFvKProblem(const double&
   
   // Assign equation numbers
   oomph_info << "Number of equations: " << assign_eqn_numbers() << '\n';
+
+
+
+
 
   
   // Set directory
@@ -805,11 +1063,11 @@ UnstructuredFvKProblem<ELEMENT>::UnstructuredFvKProblem(const double&
 
 
 
-//==start_of_pin_all_displacements_and_rotation_at_centre_node======================
+//==start_of_pin_all_displacements_and_rotation_at_centre_node================
 /// pin all displacements and rotations in the centre
-//==============================================================================
+//============================================================================
 template<class ELEMENT>
-void UnstructuredFvKProblem<ELEMENT>::
+void UnstructuredC1PlateProblem<ELEMENT>::
 pin_all_displacements_and_rotation_at_centre_node()
 {
   // Choose non-centre node on which we'll supress
@@ -842,6 +1100,9 @@ pin_all_displacements_and_rotation_at_centre_node()
     }
   }
 
+
+  // hierher Aidan: KS has exactly the same. IS THAT CORRECT?
+  
   // Pin central node:
   // - In-plane dofs are always 0 and 1
   // - Out of plane displacement is 2, x and y derivatives are 3 and 4.
@@ -868,7 +1129,7 @@ pin_all_displacements_and_rotation_at_centre_node()
 /// Doc the solution
 //========================================================================
 template<class ELEMENT>
-void UnstructuredFvKProblem<ELEMENT>::doc_solution(
+void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(
  const std::string& comment)
 {
   ofstream some_file;
@@ -886,22 +1147,40 @@ void UnstructuredFvKProblem<ELEMENT>::doc_solution(
   some_file.close();
 
 
-  // Find the solution at r=0
-  // ------------------------
 
-  // should really pre-compute this since it doesn't change...
-  MeshAsGeomObject Mesh_as_geom_obj(Bulk_mesh_pt);
-  Vector<double> s(2);
-  GeomObject* geom_obj_pt=0;
-  Vector<double> r(2,0.0);
-  Mesh_as_geom_obj.locate_zeta(r,geom_obj_pt,s);
+  // hierher need to unify this with KS; currently pointless anyway
+  // because centre is pinned!
+  // KS HAS SOMETHING LIKE THIS:
 
-  // Compute the interpolated displacement vector
-  Vector<double> u_0(3,0.0);
-  u_0=dynamic_cast<ELEMENT*>(geom_obj_pt)->interpolated_fvk_disp(s);
-  oomph_info << "w in the middle: " << std::setprecision(15)
-             << u_0[2] << std::endl;
-  Trace_file << Parameters::P_mag << " " << u_0[2] << '\n';
+  // // Compute the interpolated displacement vector
+  // Vector<Vector<double>> u_centre(3, Vector<double>(6,0.0));
+  // dynamic_cast<ELEMENT*>(geom_obj_pt)
+  //   ->interpolated_koiter_steigmann_disp(s, u_centre);
+
+  // Trace_file << Parameters::P_mag << " "
+  //     << u_centre[0][0] << " "
+  //            << u_centre[1][0] << " "
+  //            << u_centre[2][0] << " "
+  //            << Doc_info.number() << endl;
+
+  // END KS
+  
+  // // Find the solution at r=0
+  // // ------------------------
+
+  // // should really pre-compute this since it doesn't change...
+  // MeshAsGeomObject Mesh_as_geom_obj(Bulk_mesh_pt);
+  // Vector<double> s(2);
+  // GeomObject* geom_obj_pt=0;
+  // Vector<double> r(2,0.0);
+  // Mesh_as_geom_obj.locate_zeta(r,geom_obj_pt,s);
+
+  // // Compute the interpolated displacement vector
+  // Vector<double> u_0(3,0.0);
+  // u_0=dynamic_cast<ELEMENT*>(geom_obj_pt)->interpolated_fvk_disp(s);
+  // oomph_info << "w in the middle: " << std::setprecision(15)
+  //            << u_0[2] << std::endl;
+  // Trace_file << Parameters::P_mag << " " << u_0[2] << '\n';
 
   // Increment the doc_info number
   Doc_info.number()++;
@@ -947,10 +1226,19 @@ int main(int argc, char** argv)
      }
   }
 
-  // Build problem
-  UnstructuredFvKProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
-    Parameters::Element_area);
 
+#ifdef USE_KS
+  // Create the problem, using FvK elements derived from TElement<2,4>
+  // elements (with 4 nodes per element edge and 10 nodes overall).
+  UnstructuredC1PlateProblem<KoiterSteigmannC1CurvableBellElement>
+    problem(Parameters::Element_area);
+#else
+  // Build problem // hierher what's the 4 for?
+  UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
+    Parameters::Element_area);
+#endif
+
+  
   // Tweak Newton solver parameters
   problem.max_residuals() = 1.0e3;
   problem.max_newton_iterations() = 30;

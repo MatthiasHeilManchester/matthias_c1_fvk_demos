@@ -7,7 +7,8 @@ noinst_PROGRAMS = unrotated_square \
                   rotated_square \
                   rotated_square_upgraded \
                   circular_disc \
-                  matthias_disk_explorer \
+                  matthias_disk_explorer_fvk \
+                  matthias_disk_explorer_ks \
                   hexagon \
                   circular_sector \
                   sector_corner_modes \
@@ -33,7 +34,9 @@ rotated_square_upgraded_SOURCES = \
  rotated_square_upgraded.cc
 circular_disc_SOURCES = \
  circular_disc.cc
-matthias_disk_explorer_SOURCES = \
+matthias_disk_explorer_fvk_SOURCES = \
+ matthias_disk_explorer.cc
+matthias_disk_explorer_ks_SOURCES = \
  matthias_disk_explorer.cc
 hexagon_SOURCES = \
  hexagon.cc
@@ -50,6 +53,11 @@ star_trek_SOURCES = \
 element_test_SOURCES = \
  element_test.cc
 
+matthias_disk_explorer_ks_CXXFLAGS = -DUSE_KS
+
+
+
+
 #-FvK libraries-------------------------------------------------------------
 unrotated_square_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
@@ -59,7 +67,9 @@ rotated_square_upgraded_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
 circular_disc_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
-matthias_disk_explorer_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
+matthias_disk_explorer_fvk_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
+ -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
+matthias_disk_explorer_ksLDADD = -L@libdir@ -lc1_koiter_steigmann \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
 hexagon_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
