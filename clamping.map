@@ -1,0 +1,152 @@
+#============================================================
+# Fully clamped boundary: u,v,w are given as is the condition
+# that the unit normal to the deformed plate is given by a
+# vector N. Can this be translated into boundary conditions for
+# du/dn, dv/dn and dw/dn. Yes.
+#
+# Still to do: Abandon parametrisation of boundary in terms
+# of assumed arclength t, but use zeta in instead.
+# Then implement....
+#============================================================
+interface(echo=4);
+with(LinearAlgebra);
+
+
+#-----------------------------------
+# Rename derivatives
+#-----------------------------------
+rename := proc(orig)
+ subs(diff(u(x,y),x)=dudx,
+      diff(u(x,y),y)=dudy,
+      diff(v(x,y),x)=dvdx,
+      diff(v(x,y),y)=dvdy,
+      diff(w(x,y),x)=dwdx,
+      diff(w(x,y),y)=dwdy,
+      orig);
+end proc;
+
+#-----------------------------------
+# Rename boundary parametrisation
+#-----------------------------------
+rename_boundary := proc(orig)
+ subs(diff(rx_bound(t),t$2)=d2rxdt2,
+      diff(ry_bound(t),t$2)=d2rydt2,
+      diff(rx_bound(t),t  )=drxdt,
+      diff(ry_bound(t),t  )=drydt,
+           rx_bound(t)     = rx,
+           ry_bound(t)     = ry,
+      orig);
+end proc;
+
+
+#-----------------------------------
+# 3D position vector
+#-----------------------------------
+R := Vector(3, [x + u(x, y), y + v(x, y), w(x, y)]);
+
+#-----------------------------------
+# Normal from cross product of
+# tangent vectors
+#-----------------------------------
+Ax := diff(R, x);
+Ay := diff(R, y);
+cross := Ax &x Ay;
+N := simplify(cross/sqrt(DotProduct(cross, cross, conjugate = false)));
+
+
+# Check
+simplify(DotProduct(N, N, conjugate = false));
+
+
+#-----------------------------------
+# Boundary parametrisation (assuming
+# arclength parametrisation for now)
+#-----------------------------------
+
+#-----------------------------------
+# Local coordinate system:
+#-----------------------------------
+r_bound := Vector(3, [rx_bound(t),ry_bound(t),0]);
+
+#-----------------------------------
+# z unit vector
+#-----------------------------------
+e_z:=Vector(3,[0,0,1]);
+
+#-----------------------------------
+# Position vector to arbitrary point
+# in terms of t and n coordinates
+# (t,n,z) are as right handed as (x,y,z)
+#-----------------------------------
+r:=r_bound + e_z &x diff(r_bound,t) * n;
+
+#-----------------------------------
+# Jaobian of mapping and its inverse
+#-----------------------------------
+jac:=Matrix(2,2,[[diff(r[1],t),diff(r[2],t)],
+                 [diff(r[1],n),diff(r[2],n)]]);
+
+inv_jac:=MatrixInverse(jac);
+
+#-----------------------------------
+# convert derivatives to derivs
+# w.r.t. t,n
+#-----------------------------------
+convert_derivs:=proc(orig)
+ global inv_jac;
+ subs(dudx=inv_jac(1,1)*dudt+inv_jac(1,2)*dudn,
+      dudy=inv_jac(2,1)*dudt+inv_jac(2,2)*dudn,
+      dvdx=inv_jac(1,1)*dvdt+inv_jac(1,2)*dvdn,
+      dvdy=inv_jac(2,1)*dvdt+inv_jac(2,2)*dvdn,
+      dwdx=inv_jac(1,1)*dwdt+inv_jac(1,2)*dwdn,
+      dwdy=inv_jac(2,1)*dwdt+inv_jac(2,2)*dwdn,orig);
+end proc:
+
+
+#-----------------------------------
+# TEST: Essentially cylindrical
+# polars (r=1-n; t=phi on measured
+# off a unit circle).  Checked with
+# chatgpt!
+#-----------------------------------
+test_dudx_polar:=simplify(eval(subs(rx_bound(t)=cos(t),
+                                    ry_bound(t)=sin(t),
+                         convert_derivs(dudx))));
+
+test_dudy_polar:=simplify(eval(subs(rx_bound(t)=cos(t),
+                                    ry_bound(t)=sin(t),
+                         convert_derivs(dudy))));
+
+
+#-----------------------------------
+# Rename the normal
+#-----------------------------------
+renamed_N:=rename(N);
+
+
+#-----------------------------------
+# Quick check: What happens if we
+# use cylindrical polars (as above)
+# Assume displacements are pinned.
+# Obviously evaluated on the boundary
+# i.e. for n=0.
+#-----------------------------------
+normal_for_phi_eq_zero:=simplify(eval(subs(t = 0, simplify(eval(subs(n = 0, rx_bound(t) = cos(t), ry_bound(t) = sin(t), dudt = 0, dvdt = 0, dwdt = 0, convert_derivs(renamed_N)))))));
+
+normal_for_phi_eq_Pi_over_two:=simplify(eval(subs(t = Pi/2, simplify(eval(subs(n = 0, rx_bound(t) = cos(t), ry_bound(t) = sin(t), dudt = 0, dvdt = 0, dwdt = 0, convert_derivs(renamed_N)))))));
+
+
+#-----------------------------------
+# Here's the real thing:
+# - rx, ry (and derivs w.r.t. t
+#   are given from the boundary
+#   parametrisation
+# - du/dt,dv/dt,dw/dt come from the
+#   pinned boundary
+# so we have three equations for
+# du/dn, dv/dn, dw/dn. Yay!
+# Output in C and hit with Newton
+# method. Careful with square root.
+#-----------------------------------
+the_real_thing:=simplify(subs(n = 0,
+                         rename_boundary(convert_derivs(renamed_N))));
