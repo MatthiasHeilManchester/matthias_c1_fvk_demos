@@ -9,6 +9,7 @@ noinst_PROGRAMS = unrotated_square \
                   circular_disc \
                   matthias_disk_explorer_fvk \
                   matthias_disk_explorer_ks \
+                  matthias_mesh_checker \
                   hexagon \
                   circular_sector \
                   sector_corner_modes \
@@ -38,6 +39,8 @@ matthias_disk_explorer_fvk_SOURCES = \
  matthias_disk_explorer.cc
 matthias_disk_explorer_ks_SOURCES = \
  matthias_disk_explorer.cc
+matthias_mesh_checker_SOURCES = \
+ matthias_mesh_checker.cc
 hexagon_SOURCES = \
  hexagon.cc
 circular_sector_SOURCES = \
@@ -69,7 +72,9 @@ circular_disc_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
 matthias_disk_explorer_fvk_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
-matthias_disk_explorer_ksLDADD = -L@libdir@ -lc1_koiter_steigmann \
+matthias_disk_explorer_ks_LDADD = -L@libdir@ -lc1_koiter_steigmann \
+ -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
+matthias_mesh_checker_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
 hexagon_LDADD = -L@libdir@ -lc1_foeppl_von_karman \
  -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
