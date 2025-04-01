@@ -1022,8 +1022,8 @@ int main(int argc, char** argv)
 
   // Set pressure and incrementation
   Parameters::P_mag = 0.0;
-  double p_inc = 1.0e-3;
-  unsigned n_step = 10;
+  double p_inc = 1.0e-2;
+  unsigned n_step = 3;
   for( unsigned i = 0; i < n_step; i++ )
   {
    // Bump
