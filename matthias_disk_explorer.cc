@@ -48,355 +48,6 @@ using MathematicalConstants::Pi;
 
 
 
-// //==============================================================================
-// /// Namespace to deal update triangle meshes to deal with C1 elements
-// // hierher this will move into C1_helper.h in src/generic
-// //==============================================================================
-// namespace C1Helper
-// {
- 
-
-// //==============================================================================
-// // hierher update
-// /// Duplicate nodes at corners in order to properly apply boundary
-// /// conditions from each edge. Also adds (8) Lagrange multiplier dofs to the
-// /// problem in order to constrain continuous interpolation here across its (8)
-// /// vertex dofs. (Note "corner" here refers to the meeting point of any two
-// /// sub-boundaries in the closed external boundary)
-// //==============================================================================
-//  void duplicate_corner_nodes(Mesh* bulk_mesh_pt, 
-//                              std::map<unsigned,C1CurviLine*> c1_curviline_pt,
-//                              Mesh* constraint_mesh_pt)
-//  {
-
-//   // hierher check if mesh is distributed!
-  
-//   // Collection of nodes that occupy two boundaries together with the boundary IDs
-//   // (ordered: first < second)
-//   std::map<Node*,std::pair<unsigned,unsigned>> boundaries_of_boundary_node_pt;
-
-//   // Loop over the curvilinear parts of the outer boundary
-//   for (const auto& [i_bound, para] : c1_curviline_pt)
-//   {
-//    unsigned n_b_node = bulk_mesh_pt->nboundary_node(i_bound);
-//    for(unsigned i_b_node = 0; i_b_node < n_b_node; i_b_node++)
-//     {
-//      // Store the node we are checking
-//      Node* node_pt = bulk_mesh_pt->boundary_node_pt(i_bound,i_b_node);
-
-//      // Pointer to set that contains the boundaries we're on
-//      std::set<unsigned>* boundaries_pt=0;
-//      node_pt->get_boundaries_pt(boundaries_pt);
-//      if (boundaries_pt!=0)
-//       {
-//        if (boundaries_pt->size()==2)
-//         {
-//          unsigned b_min=UINT_MAX;
-//          unsigned b_max=0;
-//          for (unsigned b : (*boundaries_pt))
-//           {
-//            oomph_info << "Node " << node_pt << " is on boundary " << b << std::endl;
-//            if (b<b_min) b_min=b;
-//            if (b>b_max) b_max=b;           
-//           }
-//          // Ordered!
-//          boundaries_of_boundary_node_pt[node_pt].first=b_min;
-//          boundaries_of_boundary_node_pt[node_pt].second=b_max;
-//         }
-//       }
-//     }
-//   }
-  
-//   // Here are the nodes that need to be duplicated. We duplicate them
-//   // on the lower of its two boundaries (this is stored first)
-//   for (auto a : boundaries_of_boundary_node_pt)
-//    {
-//     Node* node_to_be_duplicated_pt=a.first;
-//     unsigned boundary_on_which_node_is_duplicated=a.second.first;
-//     unsigned boundary_on_which_node_is_left=a.second.second;
-    
-//     oomph_info << "Node " <<  node_to_be_duplicated_pt
-//                << " is duplicated on boundary "
-//                << boundary_on_which_node_is_duplicated << " and kept on boundary"
-//                << boundary_on_which_node_is_left
-//                << std::endl;
-   
-//     // Find the boundary element that contains the node to be duplicated on
-//     // the boundary where the node is to be duplicated
-//     FiniteElement* el_where_node_is_to_be_duplicated_pt=0;
-//     unsigned n_b_el = bulk_mesh_pt->nboundary_element(boundary_on_which_node_is_duplicated);
-//     for (unsigned i_b_el = 0; i_b_el < n_b_el; i_b_el++)
-//     {
-//       // Get the element pointer
-//       FiniteElement* el_pt = bulk_mesh_pt->boundary_element_pt
-//        (boundary_on_which_node_is_duplicated, i_b_el);
-//       // If the corner node pt is in the element we have found the right
-//       // element
-//       if (el_pt->get_node_number(node_to_be_duplicated_pt) != -1)
-//        {
-//         el_where_node_is_to_be_duplicated_pt = el_pt;
-//         break;
-//       }
-//     }
-
-//     oomph_info << "Boundary element that contains that node: "
-//                << el_where_node_is_to_be_duplicated_pt << std::endl;
-    
-//     // Now we need to create a new node and substitute the element's
-//     // old corner node for this new one
-//     Node* new_node_pt = el_where_node_is_to_be_duplicated_pt->construct_boundary_node(
-//      el_where_node_is_to_be_duplicated_pt->get_node_number(node_to_be_duplicated_pt));
-    
-//     // Copy the position and other info from the old node into the new node
-//     new_node_pt->x(0)=node_to_be_duplicated_pt->x(0);
-//     new_node_pt->x(1)=node_to_be_duplicated_pt->x(1);
-
-//     // Then we add this node to the mesh
-//     bulk_mesh_pt->add_node_pt(new_node_pt);
-
-//     // Then replace the old node for the new one on the boundary
-//     bulk_mesh_pt->remove_boundary_node(boundary_on_which_node_is_duplicated,node_to_be_duplicated_pt);
-//     bulk_mesh_pt->   add_boundary_node(boundary_on_which_node_is_duplicated,new_node_pt);
-
-
-//     // hierher is there some region lookup scheme where the node needs to be added too?
-    
-//     // The final job is to constrain this duplication using the specialised
-//     // Lagrange multiplier elements which enforce equality of displacement and
-//     // its derivatives either side of this corner.
-//     C1CurviLine* left_parametrisation_pt  = c1_curviline_pt[boundary_on_which_node_is_left];
-//     C1CurviLine* right_parametrisation_pt = c1_curviline_pt[boundary_on_which_node_is_duplicated];
-
-//     // Get the coordinates on each node on their respective boundaries
-//     Vector<double> left_boundary_coordinate =
-//      {left_parametrisation_pt->get_zeta(node_to_be_duplicated_pt->position())};
-//     Vector<double> right_boundary_coordinate =
-//      {right_parametrisation_pt->get_zeta(new_node_pt->position())};
-
-//     // Create the constraining element
-//     DuplicateNodeConstraintElement* constraint_element_pt =
-//      new DuplicateNodeConstraintElement(node_to_be_duplicated_pt,
-//                                         new_node_pt,
-//                                         left_parametrisation_pt,
-//                                         right_parametrisation_pt,
-//                                         left_boundary_coordinate,
-//                                         right_boundary_coordinate);
-
-//     // Add the constraining element to the mesh
-//     constraint_mesh_pt->add_element_pt(constraint_element_pt);
-//    }   
-//  }
-
-
-
-// //==============================================================================
-// /// A function that upgrades straight sided elements to be curved. This involves
-// /// Setting up the parametric boundary, F(s) and the first derivative F'(s)
-// /// We also need to set the edge number of the upgraded element and the positions
-// /// of the nodes j and k (defined below) and set which edge (k) is to be exterior
-// ///            @ k               
-// ///           /(                 
-// ///          /. \                
-// ///         /._._)               
-// ///      i @     @ j             
-// /// For RESTING or FREE boundaries we need to have a C2 CONTINUOUS boundary
-// /// representation. That is we need to have a continuous 2nd derivative defined
-// /// too. This is well discussed in by [Zenisek 1981] (Aplikace matematiky ,
-// /// Vol. 26 (1981), No. 2, 121--141). This results in the necessity for F''(s)
-// /// as well.
-// //=============================================================================
-//  void upgrade_edge_elements_to_curved_boundaries(
-//   Mesh* bulk_mesh_pt, 
-//   std::map<unsigned,C1CurviLine*> c1_curviline_pt) 
-//  {
-  
-//   // Loop over the curvilinear parts of the outer boundary
-//   for (const auto& [ibound, c1_curve_pt] : c1_curviline_pt)
-//    {
-    
-//     // Loop over the bulk elements adjacent to boundary ibound
-//     const unsigned n_els=bulk_mesh_pt->nboundary_element(ibound);
-//     for(unsigned e=0; e<n_els; e++)
-//      {
-//       // Get pointer to bulk element adjacent to b
-//       FiniteElement* bulk_el_pt =
-//        bulk_mesh_pt->boundary_element_pt(ibound,e);
-      
-//       // hierher Aidan what is that? why "My"?
-//       // Initialise enum for the curved edge
-//       MyC1CurvedElements::Edge edge(MyC1CurvedElements::none);
-      
-//       // Loop over all (three) vertex nodes of the element and
-//       // identify single node that is interior (i.e. not on any
-//       // of the outer boundaries
-//       unsigned index_of_interior_node = 3;
-//       unsigned nnode_not_on_any_outer_boundary = 0;
-//       const unsigned nnode = 3;
-//       Vector<Vector<double> > xn(nnode,Vector<double>(2,0.0));
-//       for(unsigned n=0;n<nnode;++n)
-//        {
-//         Node* nod_pt = bulk_el_pt->node_pt(n);
-//         xn[n][0]=nod_pt->x(0);
-//         xn[n][1]=nod_pt->x(1);
-        
-//         // Check if it is on any of the outer boundaries
-//         bool node_is_on_some_outer_boundary=false;
-//         for (const auto& [b, dummy_c1_curve_pt] : c1_curviline_pt)
-//          {
-//           if (nod_pt->is_on_boundary(b))
-//            {
-//             node_is_on_some_outer_boundary=true;
-//             break;
-//            }
-//          }
-//         if (!node_is_on_some_outer_boundary)
-//          {
-//           index_of_interior_node = n;
-//           nnode_not_on_any_outer_boundary++;
-//          }
-//        }// end record boundary nodes
-      
-//       // hierher shouldn't these be called zeta (everywhere; sigh)
-//       // boundary coordinate at the next (cyclic) node after interior
-//       const double s_ubar =
-//        c1_curve_pt->get_zeta(xn[(index_of_interior_node+1) % 3]);
-      
-//       // boundary coordinate at the previous (cyclic) node before interior
-//       const double s_obar =
-//        c1_curve_pt->get_zeta(xn[(index_of_interior_node+2) % 3]);
-      
-//       // Assign edge case
-//       edge = static_cast<MyC1CurvedElements::Edge>(index_of_interior_node);
-      
-// #ifdef PARANOID
-//       // Check nnode_on_neither_boundary
-//       if (nnode_not_on_any_outer_boundary == 0)
-//        {
-//         throw OomphLibError(
-//          "No interior nodes. One node per CurvedElement must be interior.",
-//          OOMPH_CURRENT_FUNCTION, OOMPH_EXCEPTION_LOCATION);
-//        }
-//       else if (nnode_not_on_any_outer_boundary> 1)
-//        {
-//         throw OomphLibError(
-//          "Multiple interior nodes. Only one node per CurvedElement can be interior.",
-//          OOMPH_CURRENT_FUNCTION, OOMPH_EXCEPTION_LOCATION);
-//        }
-      
-//       // Check for inverted elements
-//       if (s_ubar>s_obar)
-//        {
-//         throw OomphLibError(
-//          "Decreasing parametric coordinate. Parametric coordinate must increase as the edge is traversed anti-clockwise.",
-//          OOMPH_CURRENT_FUNCTION,
-//          OOMPH_EXCEPTION_LOCATION);
-//        } // end checks
-// #endif
-      
-//       // Upgrade it
-//       TemplateFreeCurvableBellElement* curv_el_pt=
-//        dynamic_cast<TemplateFreeCurvableBellElement*>(bulk_el_pt);
-// #ifdef PARANOID
-//       if (curv_el_pt==0)
-//        {
-//         throw OomphLibError(
-//          "Cast to TemplateFreeCurvableBellElement failed",
-//          OOMPH_CURRENT_FUNCTION,
-//          OOMPH_EXCEPTION_LOCATION);
-//        }
-// #endif
-
-//       // hierher shouldn't we hard code this to only allow specific options
-//       // this can't be any number, right?
-//       unsigned boundary_order=5;
-//       curv_el_pt->upgrade_element_to_curved(edge, s_ubar, s_obar,
-//                                             c1_curve_pt,
-//                                             boundary_order);
-//      }
-
-//    } // end of loop over outer boundaries
-  
-//  } // end_upgrade_elements
-
-
- 
-// //======================================================================
-// /// Function to set up rotated nodes on the boundary: necessary if we want to set
-// /// up physical boundary conditions on a curved boundary with Hermite type dofs.
-// /// For example if we know w(n,t) = f(t) (where n and t are the
-// /// normal and tangent to a boundary) we ALSO know dw/dt and d2w/dt2.
-// /// NB no rotation is needed if the edges are completely free!
-// //======================================================================
-//  void rotate_edge_degrees_of_freedom(
-//   Mesh* bulk_mesh_pt, 
-//   std::map<unsigned,C1CurviLine*> c1_curviline_pt) 
-// {
- 
-//  // Loop over the bulk elements: Yes, really because we also need to deal with those that only
-//  // have a single node on the boundary!
-//  unsigned n_element = bulk_mesh_pt-> nelement();
-//  for(unsigned e=0; e<n_element; e++)
-//   {
-//    // Get pointer to bulk element 
-//    FiniteElement* el_pt = bulk_mesh_pt->finite_element_pt(e);
-   
-//    // Loop over the curvilinear parts of the outer boundary
-//    for (const auto& [b, c1_curve_pt] : c1_curviline_pt)
-//     {
-//      // local node numbers of nodes on external boundaries
-//      Vector<unsigned> boundary_node;
-     
-//      // Boundary coordinates of nodes on the external boundaries
-//      Vector<double> boundary_coordinate_of_node;
-     
-//      // Loop over vertex nodes (they come first)
-//      const unsigned nnode=3;
-//      for (unsigned n=0; n<nnode;++n)
-//       {
-//        // If on external boundary b
-//        if (el_pt->node_pt(n)->is_on_boundary(b))
-//         {
-//          boundary_node.push_back(n);
-//          double coord = c1_curve_pt->get_zeta(el_pt->node_pt(n)->position());
-//          boundary_coordinate_of_node.push_back(coord);
-//         }
-//       }
-     
-//      // If the element has nodes on the boundary, rotate the Hermite dofs
-//      if(!boundary_node.empty())
-//       {
-//        // Rotate the nodes by passing the index of the nodes and the
-//        // normal / tangent vectors to the element
-       
-//        // Upgrade it
-//        TemplateFreeCurvableBellElement* curv_el_pt=
-//         dynamic_cast<TemplateFreeCurvableBellElement*>(el_pt);
-// #ifdef PARANOID
-//        if (curv_el_pt==0)
-//         {
-//          throw OomphLibError(
-//           "Cast to TemplateFreeCurvableBellElement failed",
-//           OOMPH_CURRENT_FUNCTION,
-//           OOMPH_EXCEPTION_LOCATION);
-//         }
-// #endif
-       
-//        curv_el_pt->
-//         rotated_boundary_helper_pt()->
-//         set_nodal_boundary_parametrisation(boundary_node,
-//                                            boundary_coordinate_of_node,
-//                                            c1_curve_pt);
-//       }
-//     }
-//   }
- 
-// } // end rotate_edge_degrees_of_freedom
-
-
-
-// } // end namespace
-
-
 ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////
@@ -433,13 +84,14 @@ namespace Parameters
  double Thickness = 0.01;
 
  #ifdef USE_KS
- 
- /// Membrane coupling coefficient (this should really be computed
- /// as a dependent parameter...)
- double Eta_u = 1.0; // hierher 12.0 * (1.0 - Nu * Nu) / (Thickness * Thickness);
 
-  /// What is this?
- double Eta_sigma = 1.0; // hierher 12.0 * (1.0 - Nu * Nu) / (Thickness * Thickness);
+ // hierher update these to make them consistent with fvk
+ 
+ /// Membrane coupling coefficient 
+ double Eta_u = 1.0;
+
+  /// hierher what is this?
+ double Eta_sigma = 1.0; 
 
 #else
  
@@ -481,9 +133,11 @@ namespace Parameters
     }
 
 
-    // hierher Aidan: do we really need this conversion? Also: pressure --> traction
+    // hierher Aidan: do we really need this conversion? Lagr/Eulerian. why?
 
     // hierher pressure --> traction in src too
+
+    // hierher: scale KS like FvK otherwise we'll all go insane!
     
     // Find the pressure per undeformed area in terms of the pressure per
     // deformed area
@@ -516,6 +170,13 @@ namespace Parameters
  #endif
 
 
+
+
+ ///////////////////////////////////////////////////////////////////////
+ ///////////////////////////////////////////////////////////////////////
+ ///////////////////////////////////////////////////////////////////////
+
+ 
  //===========================================================================
  /// Class to define zero C0 boundary conditions: f=0 for all zeta.
  /// Can be used for in-plane FvK displacements.
@@ -524,7 +185,7 @@ namespace Parameters
  {
   
   /// Implement pure virtual function to specify value of the function
-  // (typically a displacement
+  /// (typically a displacement
   /// component) as a function of zeta, the 1D coordinate that parametrises the
   /// boundary
   virtual double f(const double& zeta)
@@ -533,6 +194,11 @@ namespace Parameters
  };
  
  
+
+ ///////////////////////////////////////////////////////////////////////
+ ///////////////////////////////////////////////////////////////////////
+ ///////////////////////////////////////////////////////////////////////
+
  
  //===========================================================================
  /// Class to define zero C1 boundary conditions: f=df/dn=0 for all zeta
@@ -559,12 +225,16 @@ namespace Parameters
   
  };
 
+} // end parameters namespace
 
-}
+
+
 
 ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////
+
+
 
 
 //==start_of_problem_class============================================
@@ -586,6 +256,13 @@ public:
     Trace_file.close();
   };
 
+ /// Overloaded version of the problem's access function to
+ /// the mesh. 
+ TriangleMesh<ELEMENT>* mesh_pt()
+  {
+   return Bulk_mesh_pt;
+  }
+ 
   /// Update after solve (empty)
   void actions_after_newton_solve() {}
 
@@ -594,82 +271,75 @@ public:
 
  #ifndef USE_KS
 
-  // hierher check dofs for KS; it this type of pinning still correct?
+ // hierher check dofs for KS; it this type of pinning still correct?
+ // and how do we make the equations linear?
  
-  /// Make the problem linear (biharmonic) by pinning all in-plane dofs and
-  /// setting eta=0; also readjusts the constraints and and reassigns
-  /// the equation numbers
-  void make_linear()
+ /// Make the problem linear (biharmonic) by pinning all in-plane dofs and
+ /// setting eta=0; also readjusts the constraints and and reassigns
+ /// the equation numbers
+ void make_linear()
   {
-    // Remove stretching coupling
-    Parameters::Eta = 0.0;
-
-    // Pin all in-plane displacements
-    unsigned n_node = Bulk_mesh_pt->nnode();
-    for(unsigned i_node = 0; i_node < n_node; i_node++)
+   // Remove stretching coupling
+   Parameters::Eta = 0.0;
+   
+   // Pin all in-plane displacements
+   unsigned n_node = Bulk_mesh_pt->nnode();
+   for(unsigned i_node = 0; i_node < n_node; i_node++)
     {
-      Bulk_mesh_pt->node_pt(i_node)->pin(0);
-      Bulk_mesh_pt->node_pt(i_node)->set_value(0,0.0);
-      Bulk_mesh_pt->node_pt(i_node)->pin(1);
-      Bulk_mesh_pt->node_pt(i_node)->set_value(1,0.0);
+     Bulk_mesh_pt->node_pt(i_node)->pin(0);
+     Bulk_mesh_pt->node_pt(i_node)->set_value(0,0.0);
+     Bulk_mesh_pt->node_pt(i_node)->pin(1);
+     Bulk_mesh_pt->node_pt(i_node)->set_value(1,0.0);
     }
-
-
-    // Update the corner constraints based on boundary conditions
-    // after changing the boundary conditions
-    unsigned n_el = Constraint_mesh_pt->nelement();
-    for(unsigned i_el = 0; i_el < n_el; i_el++)
+   
+   
+   // Update the corner constraints based on boundary conditions
+   // after changing the boundary conditions
+   unsigned n_el = Constraint_mesh_pt->nelement();
+   for(unsigned i_el = 0; i_el < n_el; i_el++)
     {
-      dynamic_cast<DuplicateNodeConstraintElement*>
-        (Constraint_mesh_pt->element_pt(i_el))
-        ->validate_and_pin_redundant_constraints();
+     dynamic_cast<DuplicateNodeConstraintElement*>
+      (Constraint_mesh_pt->element_pt(i_el))
+      ->validate_and_pin_redundant_constraints();
     }
-
-    // Reassign the equation numbers
-    oomph_info << "Reassiging equation numbers after changing BCs. "
-               << " ndof = " << assign_eqn_numbers() << std::endl;
-
-  } // End make_linear()
-
- #endif
+   
+   // Reassign the equation numbers
+   oomph_info << "Reassiging equation numbers after changing BCs. "
+              << " ndof = " << assign_eqn_numbers() << std::endl;
+   
+  } // End make_linear
+ 
+#endif
+ 
+ 
+ /// Doc the solution
+ void doc_solution(const std::string& comment="");
 
  
-  /// Doc the solution
-  void doc_solution(const std::string& comment="");
-
-  /// Overloaded version of the problem's access function to
-  /// the mesh. 
-  TriangleMesh<ELEMENT>* mesh_pt()
+ /// Doc/check boundary coordinates
+ void doc_boundary_coords()
   {
-    return Bulk_mesh_pt;
-  }
-
-  
-
-  // check boundary coordinates hierher loop only over boundary nodes!
-  void doc_boundary_coords()
-  {
-  unsigned nb=Bulk_mesh_pt->nboundary();
-  for (unsigned b=0;b<nb;b++)
-   {
-    std::string filename="boundary_coordinate"+to_string(b)+".dat";
-    std::ofstream outfile;
-    outfile.open(filename.c_str());
-    oomph_info << "Checking boundary " << b << std::endl;
-    const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
-    oomph_info << "Number of elements on boundary " << b << " : " << nb_element << std::endl;
-    for(unsigned e=0;e<nb_element;e++)
-     {
-      // Get pointer to bulk element adjacent to b
-      ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->boundary_element_pt(b,e));
-      
-      unsigned n_node=el_pt->nnode();
-      oomph_info << "Element " << e << " has " << n_node << " nodes " << std::endl;
-      for (unsigned n = 0; n < n_node; ++n)
-       {
-        // Get boundary node
-        BoundaryNode<Node>* nod_pt =
-         dynamic_cast<BoundaryNode<Node>*>(el_pt->node_pt(n));
+   unsigned nb=Bulk_mesh_pt->nboundary();
+   for (unsigned b=0;b<nb;b++)
+    {
+     std::string filename="boundary_coordinate"+to_string(b)+".dat";
+     std::ofstream outfile;
+     outfile.open(filename.c_str());
+     oomph_info << "Checking boundary " << b << std::endl;
+     const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
+     oomph_info << "Number of elements on boundary " << b << " : " << nb_element << std::endl;
+     for(unsigned e=0;e<nb_element;e++)
+      {
+       // Get pointer to bulk element adjacent to b
+       ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->boundary_element_pt(b,e));
+       
+       unsigned n_node=el_pt->nnode();
+       oomph_info << "Element " << e << " has " << n_node << " nodes " << std::endl;
+       for (unsigned n = 0; n < n_node; ++n)
+        {
+         // Get boundary node
+         BoundaryNode<Node>* nod_pt =
+          dynamic_cast<BoundaryNode<Node>*>(el_pt->node_pt(n));
         if (nod_pt==0)
          {
           oomph_info << "Node n = " << n << " at "
@@ -709,7 +379,8 @@ public:
             unsigned nzeta=nod_pt->ncoordinates_on_boundary(b);
             if (nzeta!=1)
              {
-              // hierher
+              oomph_info << "Why do we have more than one boundary coordinate?"
+                         << std::endl;
               abort();
              }
 #endif
@@ -722,12 +393,12 @@ public:
             
            }
          }
-       }
-     }
-    outfile.close();
-   }
+        }
+      }
+     outfile.close();
+    }
   }
-
+ 
 
 private:
 
@@ -763,7 +434,7 @@ private:
                  << face_index
                  << std::endl;
        
-       // Build face elemnt // hierher ELEMENT won't work in general... try TElement<...> hierher if on nnode_1d
+       // Build face element (we have a TElement!)
        FiniteElement* face_element_pt;
        switch (nnod_1d)
         {
@@ -807,12 +478,8 @@ private:
   }
 
  
-  /// Pin all displacements and rotation (dofs 0-4) at the centre
+  /// Pin all displacements and rotation at the centre
   void pin_all_displacements_and_rotation_at_centre_node();
-
-  /// Pin all in-plane displacements in the domain
-  /// (for solving the linear problem)
-  void pin_all_in_plane_displacements();
 
   /// Trace file to document norm of solution
   ofstream Trace_file;
@@ -820,6 +487,7 @@ private:
   /// Pointer to "bulk" mesh
   TriangleMesh<ELEMENT>* Bulk_mesh_pt;
 
+ 
   /// Enumeration to keep track of boundary ids
   enum
   {
@@ -846,7 +514,7 @@ private:
 //======================================================================
 template<class ELEMENT>
 UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
-                                                        element_area)
+                                                                element_area)
  : Element_area(element_area)
 {
 
@@ -863,6 +531,10 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  double B = Parameters::B;
  Ellipse* outer_boundary_ellipse_pt = new Ellipse(A, B);
 
+
+ // hierher MH break up into N randomly enumerated bits; smooth meets
+ // smooth; straight lines, etc.
+ 
  // Storage for outer boundaries (for triangle)
  Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(2);
 
@@ -894,6 +566,11 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  
  // We want internal open curves
  Vector<TriangleMeshOpenCurve *> inner_open_boundaries_pt(n_open_curves);
+
+
+ // hierher MH: optinoally re-introduce cross in the middle to check
+ // element splitting
+ 
  
  // Internal bit 
   
@@ -933,30 +610,6 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   // Build an assign bulk mesh
   Bulk_mesh_pt=new TriangleMesh<ELEMENT>(mesh_parameters);
 
-  // hierher kill 
-  // // hierher check before
-  // Bulk_mesh_pt->output("mesh_before.dat");
-  // doc_boundary_coords();
-
-
-  // oomph_info << "CALLING SETUP BOUNDARY ELEMENT INFO " << std::endl;
-  // oomph_info << "CALLING SETUP BOUNDARY ELEMENT INFO " << std::endl;
-  // oomph_info << "CALLING SETUP BOUNDARY ELEMENT INFO " << std::endl;
-  // oomph_info << "CALLING SETUP BOUNDARY ELEMENT INFO " << std::endl;
-
-  // std::ofstream outfile;
-  // outfile.open("junk.dat");
-  // Bulk_mesh_pt->setup_boundary_element_info(outfile);
-  // outfile.close();
-
-
-  // exit(0);
-  
-  // // hierher check before
-  // Bulk_mesh_pt->output("mesh_before_but_after_setup_boundary_element_info.dat");
-  // doc_boundary_coords();
-  
-  // exit(0);
 
   
   // Now upgrade to (potentially) curved C1 boundaries 
@@ -968,100 +621,25 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
    // continuity of our smooth solution across different parts of the
    // mesh boundary (only really needed when there are kinks)
    Constraint_mesh_pt = new Mesh();
+
+   // hierher inside this helper function issue warning if any of
+   // the boundaries are not curvilines
    
    // hierher explain
    C1Helper::upgrade_triangle_mesh_for_c1_plate_bending<ELEMENT>(
     Bulk_mesh_pt,
     Constraint_mesh_pt);
 
+   // Let's have a look at the new mesh
+   Bulk_mesh_pt->output("mesh_black_box_upgrade.dat");
+   doc_boundary_coords();
+   std::string name_prefix="test_";
+   doc_boundary_elements_and_faces(Bulk_mesh_pt,name_prefix);
+  
   }
 
-
- 
-   // // Map as "sparse vector" for curvilines associated with outer boundaries
-   // std::map<unsigned,C1CurviLine*> c1_curviline_pt;
-
-   // // hierher there should be an interface in the triangle mesh class that
-   // // returns al of these automatically
-   // c1_curviline_pt[Outer_boundary0]
-   //  = new C1CurviLine(dynamic_cast<TriangleMeshCurviLine*>(
-   //                     outer_curvilinear_boundary_pt[0]));
-   // c1_curviline_pt[Outer_boundary1]
-   //  = new C1CurviLine(dynamic_cast<TriangleMeshCurviLine*>(
-   //                     outer_curvilinear_boundary_pt[1])); 
-
-   // // hierher kill
-   // // // hierher check after
-   // // Bulk_mesh_pt->output("mesh_before_split.dat");
-   // // oomph_info << "BEFORE SPLIT " << std::endl;
-   // // doc_boundary_coords();
-   
-   
-   // // Split elements that have multiple edges on a boundary
-   // // Note: Sets up the boundary loopup scheme too.
-   // // TimeStepper* time_stepper_pt = Bulk_mesh_pt->Time_stepper_pt;
-   // Bulk_mesh_pt->
-   //  template split_elements_with_multiple_boundary_edges<ELEMENT>(); // time_stepper_pt);
-   
-
-   // // hierher kill
-   // // // hierher check after
-   // // Bulk_mesh_pt->output("mesh_after_split.dat");
-   // // oomph_info << "AFTER SPLIT " << std::endl;
-   // // doc_boundary_coords();
-   // // exit(0);
-  
-   // // Create the mesh for the Lagrange multiplier elements that enforce
-   // // continuity of our smooth solution across different parts of the
-   // // mesh boundary (only really needed when there are kinks)
-   // Constraint_mesh_pt = new Mesh();
-
-   // // New general helper function
-   // C1Helper::duplicate_corner_nodes(Bulk_mesh_pt,
-   //                                  c1_curviline_pt,
-   //                                  Constraint_mesh_pt);
-
-
-   // // hierher do we actually need this or can we just copy the
-   // // information across to the duplicated nodes in duplicate_corner_nodes?
-   
-   // // Re-setup boundary cooordinates
-   // ToleranceForVertexMismatchInPolygons::Tolerable_error=1.0; // hierher
-   // unsigned nb=Bulk_mesh_pt->nboundary();
-   // for (unsigned b=0;b<nb;b++)
-   //  {
-   //   oomph_info
-   //    << "Setting boundary coordinates for boundary b = " << b
-   //    << " after splitting elements on boundary and duplicatinig required nodes "
-   //    << std::endl;
-   //   Bulk_mesh_pt->template setup_boundary_coordinates<ELEMENT>(b);
-   //  }
-   
-   // // New general helper function
-   // C1Helper::upgrade_edge_elements_to_curved_boundaries(
-   //  Bulk_mesh_pt,
-   //  c1_curviline_pt);
-
-   // // Rotate degrees of freedom (only needed for clamped bcs
-   // if (CommandLineArgs::command_line_flag_has_been_set("--rotate_dofs_on_boundary"))
-   //  {
-   //   C1Helper::rotate_edge_degrees_of_freedom(
-   //    Bulk_mesh_pt,
-   //    c1_curviline_pt);
-   //  }
-   
-  // }
-  // End upgrade C1 boundaries
-
-
-  // hierher kill 
-  // // hierher check after
-  // Bulk_mesh_pt->output("mesh_after.dat");
-  // doc_boundary_coords();
-
-  std::string name_prefix="test_";
-  doc_boundary_elements_and_faces(Bulk_mesh_pt,name_prefix);
-  
+  // Build global mesh
+  //==================
   
   //Add submeshes to problem
   add_sub_mesh(Bulk_mesh_pt);
@@ -1070,6 +648,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   // Combine submeshes into a single Mesh 
   build_global_mesh();
 
+
+ 
   // Complete the build of all elements so they are fully functional
   //================================================================
   unsigned n_element = Bulk_mesh_pt->nelement();
@@ -1087,9 +667,12 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     // hierher why do we need thickness and (two!) etas?
     el_pt->thickness_pt() = &Parameters::Thickness;
     el_pt->nu_pt() = &Parameters::Nu;
-    // hierher damping el_pt->mu_pt() = &Parameters::Mu;
     el_pt->eta_u_pt() = &Parameters::Eta_u;
     el_pt->eta_sigma_pt() = &Parameters::Eta_sigma;
+
+    
+    // hierher need an example that uses this!
+    // el_pt->mu_pt() = &Parameters::Mu;
 
 #else
     
@@ -1105,7 +688,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   // Set the boundary conditions
   //============================
   
-  // Get map to curvline boundaries of mesh
+  // Get map of curvline boundaries in the mesh
   std::map<unsigned, TriangleMeshCurviLine*> curviline_boundary_pt =
    Bulk_mesh_pt->curviline_boundary_pt();
   
@@ -1131,12 +714,10 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
        // Get pointer to bulk element adjacent to b
        ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->boundary_element_pt(b,e));
 
-       // Clamp: i.e. pin the in-plane displacements and pin the out-of-plane
-       // displacement and its normal derivatives. We also apply implied
+       // Clamp: i.e. pin the two in-plane displacements, and pin the out-of-plane
+       // displacement and its normal derivative. We also apply implied
        // boundary conditions (e.g. specification of dw/dn also implies
-       // d^2w/dn/dzeta etc.
-       // hierher zeta is not necessarily the arclength! translation from
-       // d/dzeta to d/dt requires jacobian!
+       // d^2w/dn/dzeta etc.)
        el_pt->fully_clamp_specified_boundary(b,boundary_values_pt,
                                              curviline_boundary_pt[b]);
       }
@@ -1168,8 +749,6 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
        // We also apply implied
        // boundary conditions (e.g. specification of w also implies
        // dw/dt and d^2w/dt^2 etc.
-       // hierher zeta is not necessarily the arclength! translation from
-       // d/dzeta to d/dt requires jacobian!
        el_pt->pin_specified_boundary(b,boundary_values_pt,
                                      curviline_boundary_pt[b]);
       }
@@ -1192,18 +771,15 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   unsigned n_el = Constraint_mesh_pt->nelement();
   for(unsigned i_el = 0; i_el < n_el; i_el++)
    {
-    // hierher rename and unify FvK/KS
+    // hierher rename in src
     dynamic_cast<DuplicateNodeConstraintElement*>
      (Constraint_mesh_pt->element_pt(i_el))
      ->validate_and_pin_redundant_constraints();
    }
   
   // Assign equation numbers
-  oomph_info << "Number of equations: " << assign_eqn_numbers() << '\n';
-
-
-
-
+  oomph_info << "Number of equations: "
+             << assign_eqn_numbers() << '\n';
 
   
   // Set directory
@@ -1228,103 +804,104 @@ template<class ELEMENT>
 void UnstructuredC1PlateProblem<ELEMENT>::
 pin_all_displacements_and_rotation_at_centre_node()
 {
-  // Choose non-centre node on which we'll supress
-  // the rigid body rotation around the z axis.
-  double max_x_potentially_pinned_node=-DBL_MAX;
-  Node* pinned_rotation_node_pt=0;
-  Node* pinned_node_pt=0;
-  double min_dist_from_origin=DBL_MAX;
-  
-  // Pin the node that is at the centre in the domain
-  unsigned num_int_nod=Bulk_mesh_pt->nboundary_node(2);
-  for (unsigned inod=0;inod<num_int_nod;inod++)
+ 
+ // Choose non-centre node on which we'll supress
+ // the rigid body rotation around the z axis.
+ double max_x_potentially_pinned_node=-DBL_MAX;
+ Node* pinned_rotation_node_pt=0;
+ Node* pinned_node_pt=0;
+ double min_dist_from_origin=DBL_MAX;
+ 
+ // Pin the node that is at the centre in the domain
+ unsigned num_int_nod=Bulk_mesh_pt->nboundary_node(2);
+ for (unsigned inod=0;inod<num_int_nod;inod++)
   {
-    // Get node point
-    Node* nod_pt=Bulk_mesh_pt->boundary_node_pt(2,inod);
-
-    // Find the node with the largest x coordinate
-    if (fabs(nod_pt->x(0))>max_x_potentially_pinned_node)
+   // Get node point
+   Node* nod_pt=Bulk_mesh_pt->boundary_node_pt(2,inod);
+   
+   // Find the node with the largest x coordinate
+   if (fabs(nod_pt->x(0))>max_x_potentially_pinned_node)
     {
-      max_x_potentially_pinned_node=fabs(nod_pt->x(0));
-      pinned_rotation_node_pt=nod_pt;
+     max_x_potentially_pinned_node=fabs(nod_pt->x(0));
+     pinned_rotation_node_pt=nod_pt;
     }
-
-    // If the node is on the other internal boundary too
-    double dist=sqrt(pow(nod_pt->x(0),2)+pow(nod_pt->x(1),2));
-    if (dist<min_dist_from_origin)
+   
+   // If the node is on the other internal boundary too
+   double dist=sqrt(pow(nod_pt->x(0),2)+pow(nod_pt->x(1),2));
+   if (dist<min_dist_from_origin)
     {
      pinned_node_pt=nod_pt;
      min_dist_from_origin=dist;
     }
   }
-
+ 
 #ifdef USE_KS
-
-  // Get relevant information from first element
-  ELEMENT* first_el_pt=dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(0));
-
-  // We're setting all dofs to zero
-  double value=0.0;
-  
-  // The three displacement directions
-  for (unsigned i_field=0;i_field<3;i_field++)
-   {
-    const unsigned first_nodal_type_index =
-     first_el_pt->first_nodal_type_index_for_field(i_field);
-
-    // Types: 0: u; 1: u_n; 2: u_t; 3: u_nn; 4: u_tn; 5: u_tt
-    if (i_field<2)
-     {
-      // In plane: just the value
-      unsigned k_type=0;
-      pinned_node_pt->pin(first_nodal_type_index + k_type);
-      pinned_node_pt->set_value(first_nodal_type_index + k_type, value);
-     }
-    else
-     {
-      // Out of plane: w, w_n, w_t
-      for (unsigned k_type=0;k_type<3;k_type++)
-       {
-        pinned_node_pt->pin(first_nodal_type_index + k_type);
-        pinned_node_pt->set_value(first_nodal_type_index + k_type, value);
-       }
-     }
-
-    // Pin y displacement at node at furthest x distance to suppress rotation about
-    // the vertical axis
-    if (i_field==1)
-     {
-      unsigned k_type=0;
-      pinned_rotation_node_pt->pin(first_nodal_type_index + k_type);
-      pinned_rotation_node_pt->set_value(first_nodal_type_index + k_type, value);
-     }
-
-   }
-
+ 
+ // Get relevant information from first element
+ ELEMENT* first_el_pt=dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(0));
+ 
+ // We're setting all dofs to zero
+ double value=0.0;
+ 
+ // The three displacement directions
+ for (unsigned i_field=0;i_field<3;i_field++)
+  {
+   const unsigned first_nodal_type_index =
+    first_el_pt->first_nodal_type_index_for_field(i_field);
+   
+   // Types: 0: u; 1: u_n; 2: u_t; 3: u_nn; 4: u_tn; 5: u_tt
+   if (i_field<2)
+    {
+     // In plane: just the value
+     unsigned k_type=0;
+     pinned_node_pt->pin(first_nodal_type_index + k_type);
+     pinned_node_pt->set_value(first_nodal_type_index + k_type, value);
+    }
+   else
+    {
+     // Out of plane: w, w_n, w_t
+     for (unsigned k_type=0;k_type<3;k_type++)
+      {
+       pinned_node_pt->pin(first_nodal_type_index + k_type);
+       pinned_node_pt->set_value(first_nodal_type_index + k_type, value);
+      }
+    }
+    
+   // Pin y displacement at node at furthest x distance to suppress rotation about
+   // the vertical axis
+   if (i_field==1)
+    {
+     unsigned k_type=0;
+     pinned_rotation_node_pt->pin(first_nodal_type_index + k_type);
+     pinned_rotation_node_pt->set_value(first_nodal_type_index + k_type, value);
+    }
+    
+  }
+ 
 #else
-  
-  // Constrain central node which is not rotated (though it doesn't
-  // really matter if it was; we can either pin dw/dx and dw/dy or dw/dn
-  // and dw/dt (relative to whatever directions the dof has been rotated
-  // to)
-  // - In-plane dofs are values 0 and 1
-  // - Out of plane displacement is value 2;
-  // - x and y (or t and n) derivatives of w are values 3 and 4.
-  pinned_node_pt->pin(0);
-  pinned_node_pt->set_value(0,0.0);
-  pinned_node_pt->pin(1);
-  pinned_node_pt->set_value(1,0.0);
-  pinned_node_pt->pin(2);
-  pinned_node_pt->set_value(2,0.0);
-  pinned_node_pt->pin(3);
-  pinned_node_pt->set_value(3,0.0);
-  pinned_node_pt->pin(4);
-  pinned_node_pt->set_value(4,0.0);
-  
-  // Pin y displacement at node at furthest x distance to suppress rotation about
-  // the vertical axis
-  pinned_rotation_node_pt->pin(1);
-
+ 
+ // Constrain central node which is not rotated (though it doesn't
+ // really matter if it was; we can either pin dw/dx and dw/dy or dw/dn
+ // and dw/dt (relative to whatever directions the dof has been rotated
+ // to)
+ // - In-plane dofs are values 0 and 1
+ // - Out of plane displacement is value 2;
+ // - x and y (or t and n) derivatives of w are values 3 and 4.
+ pinned_node_pt->pin(0);
+ pinned_node_pt->set_value(0,0.0);
+ pinned_node_pt->pin(1);
+ pinned_node_pt->set_value(1,0.0);
+ pinned_node_pt->pin(2);
+ pinned_node_pt->set_value(2,0.0);
+ pinned_node_pt->pin(3);
+ pinned_node_pt->set_value(3,0.0);
+ pinned_node_pt->pin(4);
+ pinned_node_pt->set_value(4,0.0);
+ 
+ // Pin y displacement at node at furthest x distance to suppress rotation about
+ // the vertical axis
+ pinned_rotation_node_pt->pin(1);
+ 
 #endif
 }
 
@@ -1352,42 +929,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(
   some_file << "TEXT X = 22, Y = 92, CS=FRAME T = \""
   << comment << "\"\n";
   some_file.close();
-
-
-
-  // hierher need to unify this with KS; currently pointless anyway
-  // because centre is pinned!
-  // KS HAS SOMETHING LIKE THIS:
-
-  // // Compute the interpolated displacement vector
-  // Vector<Vector<double>> u_centre(3, Vector<double>(6,0.0));
-  // dynamic_cast<ELEMENT*>(geom_obj_pt)
-  //   ->interpolated_koiter_steigmann_disp(s, u_centre);
-
-  // Trace_file << Parameters::P_mag << " "
-  //     << u_centre[0][0] << " "
-  //            << u_centre[1][0] << " "
-  //            << u_centre[2][0] << " "
-  //            << Doc_info.number() << endl;
-
-  // END KS
-  
-  // // Find the solution at r=0
-  // // ------------------------
-
-  // // should really pre-compute this since it doesn't change...
-  // MeshAsGeomObject Mesh_as_geom_obj(Bulk_mesh_pt);
-  // Vector<double> s(2);
-  // GeomObject* geom_obj_pt=0;
-  // Vector<double> r(2,0.0);
-  // Mesh_as_geom_obj.locate_zeta(r,geom_obj_pt,s);
-
-  // // Compute the interpolated displacement vector
-  // Vector<double> u_0(3,0.0);
-  // u_0=dynamic_cast<ELEMENT*>(geom_obj_pt)->interpolated_fvk_disp(s);
-  // oomph_info << "w in the middle: " << std::setprecision(15)
-  //            << u_0[2] << std::endl;
-  // Trace_file << Parameters::P_mag << " " << u_0[2] << '\n';
 
   // Increment the doc_info number
   Doc_info.number()++;
@@ -1450,14 +991,18 @@ int main(int argc, char** argv)
  
 
 #ifdef USE_KS
+  
   // Create the problem, using FvK elements derived from TElement<2,4>
   // elements (with 4 nodes per element edge and 10 nodes overall).
   UnstructuredC1PlateProblem<KoiterSteigmannC1CurvableBellElement>
     problem(Parameters::Element_area);
+
 #else
-  // Build problem // hierher what's the 4 for?
+
+  // Build problem // hierher what's the 4 for? What else can I do
   UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
     Parameters::Element_area);
+
 #endif
 
   
