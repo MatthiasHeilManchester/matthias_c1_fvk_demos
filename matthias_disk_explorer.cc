@@ -1104,9 +1104,12 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   
   // Set the boundary conditions
   //============================
-
-
-
+  
+  // Get map to curvline boundaries of mesh
+  std::map<unsigned, TriangleMeshCurviLine*> curviline_boundary_pt =
+   Bulk_mesh_pt->curviline_boundary_pt();
+  
+  
   // Clamp it
   if (Parameters::Problem_case==Parameters::Clamped_validation)
   {
@@ -1134,7 +1137,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
        // d^2w/dn/dzeta etc.
        // hierher zeta is not necessarily the arclength! translation from
        // d/dzeta to d/dt requires jacobian!
-       el_pt->fully_clamp_specified_boundary(b,boundary_values_pt);
+       el_pt->fully_clamp_specified_boundary(b,boundary_values_pt,
+                                             curviline_boundary_pt[b]);
       }
     }
   }
@@ -1166,7 +1170,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
        // dw/dt and d^2w/dt^2 etc.
        // hierher zeta is not necessarily the arclength! translation from
        // d/dzeta to d/dt requires jacobian!
-       el_pt->pin_specified_boundary(b,boundary_values_pt);
+       el_pt->pin_specified_boundary(b,boundary_values_pt,
+                                     curviline_boundary_pt[b]);
       }
     }
   }
