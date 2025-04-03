@@ -300,7 +300,7 @@ public:
     {
      dynamic_cast<DuplicateNodeConstraintElement*>
       (Constraint_mesh_pt->element_pt(i_el))
-      ->validate_and_pin_redundant_constraints();
+      ->pin_redundant_constraints();
     }
    
    // Reassign the equation numbers
@@ -493,7 +493,9 @@ private:
   {
     Outer_boundary0 = 0,
     Outer_boundary1 = 1,
-    Inner_boundary0 = 2
+    Inner_boundary0 = 2,
+    Inner_boundary1 = 3,
+    Inner_boundary2 = 4
   };
 
   /// Target element area
@@ -561,15 +563,10 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  
  // Internal open boundaries
  //-------------------------
- // Total number of open curves in the domain
- unsigned n_open_curves = 1;
- 
+  
  // We want internal open curves
- Vector<TriangleMeshOpenCurve *> inner_open_boundaries_pt(n_open_curves);
+  Vector<TriangleMeshOpenCurve *> inner_open_boundaries_pt;
 
-
- // hierher MH: optinoally re-introduce cross in the middle to check
- // element splitting
  
  
  // Internal bit 
@@ -595,9 +592,76 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   internal_curve_section1_pt[0] = boundary2_pt;
     
   // The open curve that defines this boundary
-  inner_open_boundaries_pt[0] =
-   new TriangleMeshOpenCurve(internal_curve_section1_pt);
+  inner_open_boundaries_pt.push_back(
+   new TriangleMeshOpenCurve(internal_curve_section1_pt));
 
+
+  // Make a cross in the middle of the domain (to force splitting
+  // of elements?
+  bool make_cross=true;
+  if (make_cross)
+   {
+
+    // Open Curve 2
+    Vector<Vector<double> > vertices(2,Vector<double>(2,0.0));
+    vertices[0][0] = 0.0;
+    vertices[0][1] =-0.5;
+    
+    vertices[1][0] = 0.0;
+    vertices[1][1] = 0.0;
+    boundary_id = Inner_boundary1;
+    
+    TriangleMeshPolyLine* boundary3_pt =
+     new TriangleMeshPolyLine(vertices, boundary_id);
+     
+    // Connect final vertex on this boundary
+    // to middle vertex in the horizontal one:
+    unsigned vertex_to_connect_to=1;
+    boundary3_pt->connect_final_vertex_to_polyline(
+     boundary2_pt,
+     vertex_to_connect_to);
+  
+    // Each internal open curve is defined by a vector of
+    // TriangleMeshCurveSections
+    Vector<TriangleMeshCurveSection *> internal_curve_section2_pt(1);
+    internal_curve_section2_pt[0] = boundary3_pt;
+    
+    // The open curve that defines this boundary
+    inner_open_boundaries_pt.push_back(
+     new TriangleMeshOpenCurve(internal_curve_section2_pt));
+
+    
+    // Open Curve 3
+    vertices[0][0] = 0.0;
+    vertices[0][1] = 0.5;
+    
+    vertices[1][0] = 0.0;
+    vertices[1][1] = 0.0;
+    boundary_id = Inner_boundary2;
+    
+    TriangleMeshPolyLine* boundary4_pt =
+     new TriangleMeshPolyLine(vertices, boundary_id);
+     
+    // Connect final vertex on this boundary
+    // to middle vertex in the horizontal one:
+    vertex_to_connect_to=1;
+    boundary4_pt->connect_final_vertex_to_polyline(
+     boundary2_pt,
+     vertex_to_connect_to);
+  
+    // Each internal open curve is defined by a vector of
+    // TriangleMeshCurveSections
+    Vector<TriangleMeshCurveSection *> internal_curve_section3_pt(1);
+    internal_curve_section3_pt[0] = boundary4_pt;
+    
+    // The open curve that defines this boundary
+    inner_open_boundaries_pt.push_back(
+     new TriangleMeshOpenCurve(internal_curve_section3_pt));
+     
+   }
+
+
+  
   //Create mesh parameters object
   TriangleMeshParameters mesh_parameters(outer_boundary_pt);
 
@@ -622,6 +686,15 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
    // mesh boundary (only really needed when there are kinks)
    Constraint_mesh_pt = new Mesh();
 
+
+   // Let's have a look what the black box helper function does:
+   C1Helper::Duplicated_node_output_stream.open
+    ("duplicated_nodes.dat");
+   C1Helper::Upgraded_to_curved_edge_element_stream.open
+    ("elements_upgraded_to_curved.dat");
+   C1Helper::Split_elements_output_stream.open
+    ("split_elements.dat");
+ 
    // hierher inside this helper function issue warning if any of
    // the boundaries are not curvilines
    
@@ -629,6 +702,11 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
    C1Helper::upgrade_triangle_mesh_for_c1_plate_bending<ELEMENT>(
     Bulk_mesh_pt,
     Constraint_mesh_pt);
+
+   // Done
+   C1Helper::Duplicated_node_output_stream.close();
+   C1Helper::Upgraded_to_curved_edge_element_stream.close();
+   C1Helper::Split_elements_output_stream.close();
 
    // Let's have a look at the new mesh
    Bulk_mesh_pt->output("mesh_black_box_upgrade.dat");
@@ -774,7 +852,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     // hierher rename in src
     dynamic_cast<DuplicateNodeConstraintElement*>
      (Constraint_mesh_pt->element_pt(i_el))
-     ->validate_and_pin_redundant_constraints();
+     ->pin_redundant_constraints();
    }
   
   // Assign equation numbers
