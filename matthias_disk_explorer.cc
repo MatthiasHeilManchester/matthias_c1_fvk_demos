@@ -48,6 +48,156 @@ using MathematicalConstants::Pi;
 
 
 
+// hierher move to geom_objects.h
+
+/// ////////////////////////////////////////////////////////////////////
+/// ////////////////////////////////////////////////////////////////////
+// Straight line as geometric object
+/// ////////////////////////////////////////////////////////////////////
+/// ////////////////////////////////////////////////////////////////////
+
+
+ //=========================================================================
+ /// Steady, straight 1D line in 2D space connecting two specified points.
+ /// First point reached for zeta = 0; last one for zeta = 1 
+ //=========================================================================
+class TwoDStraightLineFromTwoPoints : public GeomObject
+{
+public:
+ 
+ /// Constructor: Pass left and right point.
+ TwoDStraightLineFromTwoPoints(const Vector<double>& left,
+                               const Vector<double>& right) 
+  : Left(left), Right(right), GeomObject(1, 2)
+  {
+#ifdef PARANOID
+   if (left.size() != 2)
+    {
+     std::ostringstream error_message;
+     error_message << "left point should have size 2, not "
+                   << left.size() << std::endl;
+     throw OomphLibError(error_message.str(),
+                         OOMPH_CURRENT_FUNCTION,
+                         OOMPH_EXCEPTION_LOCATION);
+    }
+   if (right.size() != 2)
+    {
+     std::ostringstream error_message;
+     error_message << "right point should have size 2, not "
+                   << right.size() << std::endl;
+     throw OomphLibError(error_message.str(),
+                         OOMPH_CURRENT_FUNCTION,
+                         OOMPH_EXCEPTION_LOCATION);
+    }
+#endif
+   
+  }
+ 
+ /// Broken copy constructor
+ TwoDStraightLineFromTwoPoints(const TwoDStraightLineFromTwoPoints& dummy) = delete;
+ 
+ /// Broken assignment operator
+ void operator=(const TwoDStraightLineFromTwoPoints&) = delete;
+ 
+ /// Destructor
+ ~TwoDStraightLineFromTwoPoints(){}
+ 
+ /// Position Vector at Lagrangian coordinate zeta
+ void position(const Vector<double>& zeta, Vector<double>& r) const
+  {
+   // Position Vector
+   r[0] = Left[0]+zeta[0]*(Right[0]-Left[0]);
+   r[1] = Left[1]+zeta[0]*(Right[1]-Left[1]);
+  }
+ 
+ 
+ /// Parametrised position on object: r(zeta). Evaluated at
+ /// previous timestep. t=0: current time; t>0: previous
+ /// timestep.
+ void position(const unsigned& t,
+               const Vector<double>& zeta,
+               Vector<double>& r) const
+  {
+   // Position Vector
+   r[0] = Left[0]+zeta[0]*(Right[0]-Left[0]);
+   r[1] = Left[1]+zeta[0]*(Right[1]-Left[1]);
+  }
+ 
+ 
+ /// Derivative of position Vector w.r.t. to coordinates:
+ /// \f$ \frac{dR_i}{d \zeta_\alpha}\f$ = drdzeta(alpha,i).
+ /// Evaluated at current time.
+ virtual void dposition(const Vector<double>& zeta,
+                        DenseMatrix<double>& drdzeta) const
+  {
+   // Tangent vector
+   drdzeta(0, 0) = Right[0]-Left[0];
+   drdzeta(0, 1) = Right[1]-Left[1];
+  }
+ 
+ 
+ /// 2nd derivative of position Vector w.r.t. to coordinates:
+ /// \f$ \frac{d^2R_i}{d \zeta_\alpha d \zeta_\beta}\f$ =
+ /// ddrdzeta(alpha,beta,i). Evaluated at current time.
+ virtual void d2position(const Vector<double>& zeta,
+                         RankThreeTensor<double>& ddrdzeta) const
+  {
+   // Derivative of tangent vector
+   ddrdzeta(0, 0, 0) = 0.0;
+   ddrdzeta(0, 0, 1) = 0.0;
+  }
+ 
+ 
+ /// Posn Vector and its  1st & 2nd derivatives
+ /// w.r.t. to coordinates:
+ /// \f$ \frac{dR_i}{d \zeta_\alpha}\f$ = drdzeta(alpha,i).
+ /// \f$ \frac{d^2R_i}{d \zeta_\alpha d \zeta_\beta}\f$ =
+ /// ddrdzeta(alpha,beta,i).
+ /// Evaluated at current time.
+ virtual void d2position(const Vector<double>& zeta,
+                         Vector<double>& r,
+                         DenseMatrix<double>& drdzeta,
+                         RankThreeTensor<double>& ddrdzeta) const
+  {
+   // Position Vector
+   r[0] = Left[0]+zeta[0]*(Right[0]-Left[0]);
+   r[1] = Left[1]+zeta[0]*(Right[1]-Left[1]);
+   
+   // Tangent vector
+   drdzeta(0, 0) = Right[0]-Left[0];
+   drdzeta(0, 1) = Right[1]-Left[1];
+   
+   // Derivative of tangent vector
+   ddrdzeta(0, 0, 0) = 0.0;
+   ddrdzeta(0, 0, 1) = 0.0;
+  }
+ 
+ 
+ /// How many items of Data does the shape of the object depend on?
+ unsigned ngeom_data() const
+  {
+   return 0;
+  }
+ 
+ /// Return pointer to the j-th Data item that the object's
+ /// shape depends on
+ Data* geom_data_pt(const unsigned& j)
+  {
+   return 0;
+  }
+
+private:
+ 
+ /// Left point 
+ Vector<double> Left;
+
+ /// Right point
+ Vector<double> Right; 
+ 
+};
+
+
+
 ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////
@@ -313,7 +463,7 @@ public:
  
  
  /// Doc the solution
- void doc_solution(const std::string& comment="");
+ void doc_solution();
 
  
  /// Doc/check boundary coordinates
@@ -493,9 +643,11 @@ private:
   {
     Outer_boundary0 = 0,
     Outer_boundary1 = 1,
-    Inner_boundary0 = 2,
-    Inner_boundary1 = 3,
-    Inner_boundary2 = 4
+    Outer_boundary2 = 2,
+    Outer_boundary3 = 3,
+    Inner_boundary0 = 4,
+    Inner_boundary1 = 5,
+    Inner_boundary2 = 6
   };
 
   /// Target element area
@@ -523,8 +675,6 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  // Build the mesh
  //================
  
- Vector<double> zeta(1);
- Vector<double> posn(2);
  
  //Outer boundary
  //--------------
@@ -534,15 +684,12 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  Ellipse* outer_boundary_ellipse_pt = new Ellipse(A, B);
 
 
- // hierher MH break up into N randomly enumerated bits; smooth meets
- // smooth; straight lines, etc.
- 
  // Storage for outer boundaries (for triangle)
- Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(2);
+ Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(4);
 
  //First bit
  double zeta_start = 0.0;
- double zeta_end = MathematicalConstants::Pi;
+ double zeta_end = 0.5*MathematicalConstants::Pi;
  unsigned nsegment = (unsigned)(MathematicalConstants::Pi/sqrt(Element_area));
  outer_curvilinear_boundary_pt[0] = 
   new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
@@ -550,12 +697,53 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  
  
  //Second bit
- zeta_start = MathematicalConstants::Pi;
- zeta_end = 2.0*MathematicalConstants::Pi;
- nsegment = (int)(MathematicalConstants::Pi/sqrt(Element_area));
- outer_curvilinear_boundary_pt[1] =
+
+ // Straight line
+ double zeta_start_next_curved=MathematicalConstants::Pi;
+ Vector<double> left(2);
+ Vector<double> zeta(1);
+ zeta[0]=zeta_end;
+ outer_boundary_ellipse_pt->position(zeta,left);
+ Vector<double> right(2);
+ zeta[0]=zeta_start_next_curved;
+ outer_boundary_ellipse_pt->position(zeta,right);
+ TwoDStraightLineFromTwoPoints* straight_line_pt =
+  new TwoDStraightLineFromTwoPoints(left,right);
+
+ 
+ bool flatten_one_side=true;
+ if (flatten_one_side)
+  {
+   zeta_start = 0.0;
+   zeta_end = 1.0;
+   outer_curvilinear_boundary_pt[1] =
+    new TriangleMeshCurviLine(straight_line_pt, zeta_start,
+                              zeta_end, nsegment, Outer_boundary1);
+  }
+ else
+  {
+   zeta_start = 0.5*MathematicalConstants::Pi;
+   zeta_end = MathematicalConstants::Pi;
+   outer_curvilinear_boundary_pt[1] =
+    new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
+                              zeta_end, nsegment, Outer_boundary1);
+  }
+
+   
+   //Third bit
+ zeta_start = zeta_start_next_curved;
+ zeta_end = 1.5*MathematicalConstants::Pi;
+ outer_curvilinear_boundary_pt[2] = 
   new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
-                            zeta_end, nsegment, Outer_boundary1);
+                            zeta_end, nsegment, Outer_boundary2);
+ 
+ 
+ //Fourth bit
+ zeta_start = 1.5*MathematicalConstants::Pi;
+ zeta_end = 2.0*MathematicalConstants::Pi;
+ outer_curvilinear_boundary_pt[3] =
+  new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
+                            zeta_end, nsegment, Outer_boundary3);
  
  // Combine
   TriangleMeshClosedCurve* outer_boundary_pt =
@@ -610,20 +798,52 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     vertices[1][0] = 0.0;
     vertices[1][1] = 0.0;
     boundary_id = Inner_boundary1;
+
+    TriangleMeshCurveSection* boundary3_pt=0;
+    bool use_curviline=false;
+    if (use_curviline)
+     {
+
+      // hierher Aidan: this gives me an error:
+      // "Decreasing parametric coordinate. Parametric coordinate must increase as the edge is traversed anti-clockwise."
+      // even if I reverse the direction
+      
+      // Straight curvilinear line
+      TwoDStraightLineFromTwoPoints* straight_line_pt =
+       new TwoDStraightLineFromTwoPoints(vertices[0],vertices[1]);
+
+      double zeta_start=0.0;
+      double zeta_end=1.0;
+      boundary3_pt =
+       new TriangleMeshCurviLine(straight_line_pt, zeta_start,
+                                 zeta_end, nsegment, boundary_id);
+            
+      // Connect final vertex on this boundary
+      // to middle vertex in the horizontal one:
+      unsigned vertex_to_connect_to=1;
+      boundary3_pt->connect_final_vertex_to_polyline(
+       boundary2_pt,
+       vertex_to_connect_to);
+      // boundary3_pt->connect_initial_vertex_to_polyline(
+      //  boundary2_pt,
+      //  vertex_to_connect_to);
+     }
+    else
+     {
+      boundary3_pt =
+       new TriangleMeshPolyLine(vertices, boundary_id);
+      
+      // Connect final vertex on this boundary
+      // to middle vertex in the horizontal one:
+      unsigned vertex_to_connect_to=1;
+      boundary3_pt->connect_final_vertex_to_polyline(
+       boundary2_pt,
+       vertex_to_connect_to);
+     }
     
-    TriangleMeshPolyLine* boundary3_pt =
-     new TriangleMeshPolyLine(vertices, boundary_id);
-     
-    // Connect final vertex on this boundary
-    // to middle vertex in the horizontal one:
-    unsigned vertex_to_connect_to=1;
-    boundary3_pt->connect_final_vertex_to_polyline(
-     boundary2_pt,
-     vertex_to_connect_to);
-  
     // Each internal open curve is defined by a vector of
     // TriangleMeshCurveSections
-    Vector<TriangleMeshCurveSection *> internal_curve_section2_pt(1);
+    Vector<TriangleMeshCurveSection*> internal_curve_section2_pt(1);
     internal_curve_section2_pt[0] = boundary3_pt;
     
     // The open curve that defines this boundary
@@ -644,7 +864,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
      
     // Connect final vertex on this boundary
     // to middle vertex in the horizontal one:
-    vertex_to_connect_to=1;
+    unsigned vertex_to_connect_to=1;
     boundary4_pt->connect_final_vertex_to_polyline(
      boundary2_pt,
      vertex_to_connect_to);
@@ -782,8 +1002,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
    boundary_values_pt[1]= new Parameters::ZeroC0BoundaryConditions;
    boundary_values_pt[2]= new Parameters::ZeroC1BoundaryConditions;
    
-    // Set the boundary conditions on the two outer boundaries
-   unsigned nbound = 2;
+    // Set the boundary conditions on the outer boundaries
+   unsigned nbound = 4;
    for(unsigned b = 0; b < nbound; b++)
     {
      const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
@@ -813,8 +1033,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
    boundary_values_pt[1]= new Parameters::ZeroC0BoundaryConditions;
    boundary_values_pt[2]= new Parameters::ZeroC0BoundaryConditions;
    
-    // Set the boundary conditions on the two outer boundaries
-   unsigned nbound = 2;
+    // Set the boundary conditions on the outer boundaries
+   unsigned nbound = 4;
    for(unsigned b = 0; b < nbound; b++)
     {
      const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
@@ -891,11 +1111,11 @@ pin_all_displacements_and_rotation_at_centre_node()
  double min_dist_from_origin=DBL_MAX;
  
  // Pin the node that is at the centre in the domain
- unsigned num_int_nod=Bulk_mesh_pt->nboundary_node(2);
+ unsigned num_int_nod=Bulk_mesh_pt->nboundary_node(Inner_boundary0);
  for (unsigned inod=0;inod<num_int_nod;inod++)
   {
    // Get node point
-   Node* nod_pt=Bulk_mesh_pt->boundary_node_pt(2,inod);
+   Node* nod_pt=Bulk_mesh_pt->boundary_node_pt(Inner_boundary0,inod);
    
    // Find the node with the largest x coordinate
    if (fabs(nod_pt->x(0))>max_x_potentially_pinned_node)
@@ -991,8 +1211,7 @@ pin_all_displacements_and_rotation_at_centre_node()
 /// Doc the solution
 //========================================================================
 template<class ELEMENT>
-void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(
- const std::string& comment)
+void UnstructuredC1PlateProblem<ELEMENT>::doc_solution()
 {
   ofstream some_file;
   char filename[100];
@@ -1004,8 +1223,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(
           Doc_info.number());
   some_file.open(filename);
   Bulk_mesh_pt->output(some_file,npts);
-  some_file << "TEXT X = 22, Y = 92, CS=FRAME T = \""
-  << comment << "\"\n";
   some_file.close();
 
   // Increment the doc_info number
