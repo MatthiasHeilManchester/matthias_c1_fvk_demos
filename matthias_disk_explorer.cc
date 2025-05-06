@@ -68,7 +68,7 @@ public:
  /// Constructor: Pass left and right point.
  TwoDStraightLineFromTwoPoints(const Vector<double>& left,
                                const Vector<double>& right) 
-  : Left(left), Right(right), GeomObject(1, 2)
+  : GeomObject(1, 2), Left(left), Right(right)
   {
 #ifdef PARANOID
    if (left.size() != 2)
@@ -215,6 +215,7 @@ namespace Parameters
  {
   Clamped_validation,
   Pinned_validation,
+  Balance_on_edge,
   Free_edges
  };
 
@@ -555,7 +556,7 @@ private:
 
  
  /// Doc boundary elements and faces
- // hierher move this into mesh and describe output and prefix
+ // hierher move this into triangle mesh and describe output and prefix
  void doc_boundary_elements_and_faces(Mesh* mesh_pt, std::string name_prefix="")
   {
    
@@ -569,7 +570,7 @@ private:
      ofstream face_file;
      face_file.open(name_prefix+"face_elements_on_boundary"+to_string(b)+".dat");
      unsigned nel = mesh_pt->nboundary_element(b);
-     std::cout << "Boundary: " << b << " is adjacent to " << nel << " elements"
+     oomph_info << "Boundary: " << b << " is adjacent to " << nel << " elements"
                << std::endl;
      
      // Loop over elements on given boundary
@@ -579,7 +580,7 @@ private:
        unsigned nnod_1d=fe_pt->nnode_1d();
        fe_pt->output(bulk_file,nnod_1d);
        unsigned face_index=mesh_pt->face_index_at_boundary(b,e);
-       std::cout << "Boundary element:" << fe_pt
+       oomph_info << "Boundary element:" << fe_pt
                  << " Face index of boundary is "
                  << face_index
                  << std::endl;
@@ -607,7 +608,8 @@ private:
         break;
         
         default:
-         std::cout << "Never get here: " << nnod_1d << std::endl;
+         // hierher throw properly
+         oomph_info << "Never get here: " << nnod_1d << std::endl;
          abort();
         }
        
@@ -631,6 +633,10 @@ private:
   /// Pin all displacements and rotation at the centre
   void pin_all_displacements_and_rotation_at_centre_node();
 
+  /// Balance on edge along line
+  void pin_for_balance_on_edge();
+ 
+    
   /// Trace file to document norm of solution
   ofstream Trace_file;
 
@@ -710,8 +716,11 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  TwoDStraightLineFromTwoPoints* straight_line_pt =
   new TwoDStraightLineFromTwoPoints(left,right);
 
- 
- bool flatten_one_side=true;
+ bool flatten_one_side=true; 
+ if (Parameters::Problem_case==Parameters::Balance_on_edge)
+  {
+   flatten_one_side=false;
+  }
  if (flatten_one_side)
   {
    zeta_start = 0.0;
@@ -787,6 +796,10 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   // Make a cross in the middle of the domain (to force splitting
   // of elements?
   bool make_cross=true;
+ if (Parameters::Problem_case==Parameters::Balance_on_edge)
+  {
+   make_cross=false;
+  }
   if (make_cross)
    {
 
@@ -800,7 +813,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     boundary_id = Inner_boundary1;
 
     TriangleMeshCurveSection* boundary3_pt=0;
-    bool use_curviline=false;
+    bool use_curviline=true;
     if (use_curviline)
      {
 
@@ -908,25 +921,23 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
 
 
    // Let's have a look what the black box helper function does:
-   C1Helper::Duplicated_node_output_stream.open
+   C1PlateHelper::Duplicated_node_output_stream.open
     ("duplicated_nodes.dat");
-   C1Helper::Upgraded_to_curved_edge_element_stream.open
+   C1PlateHelper::Upgraded_to_curved_edge_element_stream.open
     ("elements_upgraded_to_curved.dat");
-   C1Helper::Split_elements_output_stream.open
+   C1PlateHelper::Split_elements_output_stream.open
     ("split_elements.dat");
  
-   // hierher inside this helper function issue warning if any of
-   // the boundaries are not curvilines
    
    // hierher explain
-   C1Helper::upgrade_triangle_mesh_for_c1_plate_bending<ELEMENT>(
+   C1PlateHelper::upgrade_triangle_mesh_for_c1_plate_bending<ELEMENT>(
     Bulk_mesh_pt,
     Constraint_mesh_pt);
 
    // Done
-   C1Helper::Duplicated_node_output_stream.close();
-   C1Helper::Upgraded_to_curved_edge_element_stream.close();
-   C1Helper::Split_elements_output_stream.close();
+   C1PlateHelper::Duplicated_node_output_stream.close();
+   C1PlateHelper::Upgraded_to_curved_edge_element_stream.close();
+   C1PlateHelper::Split_elements_output_stream.close();
 
    // Let's have a look at the new mesh
    Bulk_mesh_pt->output("mesh_black_box_upgrade.dat");
@@ -1052,6 +1063,11 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
       }
     }
   }
+  // Balance on edge along line
+  else if (Parameters::Problem_case==Parameters::Balance_on_edge)
+   {
+    pin_for_balance_on_edge();
+   }
   // All other cases: simply pin and stop rotation via the centre
   else if (Parameters::Problem_case==Parameters::Free_edges)
    {
@@ -1205,6 +1221,105 @@ pin_all_displacements_and_rotation_at_centre_node()
 
 
 
+//==start_of_pin_for_balance_on_edge=========================================
+/// Apply bcs so that sheet is balanced on edge in the middle
+//============================================================================
+template<class ELEMENT>
+void UnstructuredC1PlateProblem<ELEMENT>::pin_for_balance_on_edge()
+{
+
+ // Rotation about edge suppressed?
+ bool rotation_about_edge_suppressed=false;
+ 
+ // Pin all nodes along internal boundary "0"
+ unsigned num_int_nod=Bulk_mesh_pt->nboundary_node(Inner_boundary0);
+ for (unsigned inod=0;inod<num_int_nod;inod++)
+  {
+   // Get node point
+   Node* nod_pt=Bulk_mesh_pt->boundary_node_pt(Inner_boundary0,inod);
+   
+#ifdef USE_KS
+   
+   // Get relevant information from first element
+   ELEMENT* first_el_pt=dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(0));
+   
+   // We're setting all dofs to zero
+   double value=0.0;
+   
+   // The three displacement directions
+   for (unsigned i_field=0;i_field<3;i_field++)
+    {
+     const unsigned first_nodal_type_index =
+      first_el_pt->first_nodal_type_index_for_field(i_field);
+     
+     // Types: 0: u; 1: u_n; 2: u_t; 3: u_nn; 4: u_tn; 5: u_tt
+     //        0: u; 1: u_x; 2: u_y; 3: u_xx; 4: u_xy; 5: u_yy
+     if (i_field<2)
+      {
+       // In plane: just the value
+       unsigned k_type=0;
+       nod_pt->pin(first_nodal_type_index + k_type);
+       nod_pt->set_value(first_nodal_type_index + k_type, value);
+      }
+     else
+      {
+       // Out of plane: w, w_x, w_xx
+       for (unsigned k_type=0;k_type<4;k_type++)
+        {
+         if (k_type!=2)
+          {
+           nod_pt->pin(first_nodal_type_index + k_type);
+           nod_pt->set_value(first_nodal_type_index + k_type, value);
+          }
+        }
+      }
+     
+     
+  }
+   
+#else
+   
+   // - In-plane dofs are values 0 and 1
+   // - Out of plane displacement is value 2;
+   // - x and y (or t and n) derivatives of w are values 3 and 4.
+
+
+   // oomph_info << "Pinning at: "
+   //            << nod_pt->x(0) << " "
+   //            << nod_pt->x(1) << " "
+   //            << std::endl;
+
+   
+   // u
+   nod_pt->pin(0);
+   nod_pt->set_value(0,0.0);
+   // v
+   nod_pt->pin(1);
+   nod_pt->set_value(1,0.0);
+
+   // Only vertex nodes have w
+   if (nod_pt->nvalue()>2)
+    {
+     // w
+     nod_pt->pin(2);
+     nod_pt->set_value(2,0.0);
+     // w_x
+     nod_pt->pin(3);
+     nod_pt->set_value(3,0.0);
+     
+      // w_y (to suppress rotation about edge)
+     nod_pt->pin(4);
+     nod_pt->set_value(4,0.0);
+    }
+   
+#endif
+   
+  }
+}
+
+
+
+
 
 
 //==start_of_doc_solution=================================================
@@ -1249,9 +1364,11 @@ int main(int argc, char** argv)
   // Clamped boundary conditions?
   CommandLineArgs::specify_command_line_flag("--use_clamped_bc");
 
-  // Clamped boundary conditions?
+  // Pinned boundary conditions?
   CommandLineArgs::specify_command_line_flag("--use_pinned_bc");
 
+  // Balance on edge boundary conditions?
+  CommandLineArgs::specify_command_line_flag("--use_balance_on_edge_bc");
   
   // Rotate dofs?
   CommandLineArgs::specify_command_line_flag("--rotate_dofs_on_boundary");
@@ -1283,7 +1400,13 @@ int main(int argc, char** argv)
       abort();
      }
   }
- 
+
+  /// Balance on edge
+  if (CommandLineArgs::command_line_flag_has_been_set("--use_balance_on_edge_bc"))
+   {
+    Parameters::Problem_case = Parameters::Balance_on_edge;
+  }
+  
 
 #ifdef USE_KS
   
@@ -1304,7 +1427,7 @@ int main(int argc, char** argv)
   // Tweak Newton solver parameters
   problem.max_residuals() = 1.0e3;
   problem.max_newton_iterations() = 100;
-  problem.newton_solver_tolerance() = 1.0e-11;
+  //problem.newton_solver_tolerance() = 1.0e-11;
 
   // Document the initial state
   problem.doc_solution();
@@ -1317,8 +1440,8 @@ int main(int argc, char** argv)
 
   // Set pressure and incrementation
   Parameters::P_mag = 0.0;
-  double p_inc = 1.0e-2;
-  unsigned n_step = 3;
+  double p_inc = 1.0; // 1.0e-1; // 1.0e-2;
+  unsigned n_step = 30; // 3;
   for( unsigned i = 0; i < n_step; i++ )
   {
    // Bump
