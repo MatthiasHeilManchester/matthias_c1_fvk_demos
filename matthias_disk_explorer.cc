@@ -68,7 +68,7 @@ public:
  /// Constructor: Pass left and right point.
  TwoDStraightLineFromTwoPoints(const Vector<double>& left,
                                const Vector<double>& right) 
-  : GeomObject(1, 2), Left(left), Right(right)
+  : GeomObject(1, 2)
   {
 #ifdef PARANOID
    if (left.size() != 2)
@@ -90,6 +90,13 @@ public:
                          OOMPH_EXCEPTION_LOCATION);
     }
 #endif
+
+   Left.resize(2);
+   Left[0]=left[0];
+   Left[1]=left[1];
+   Right.resize(2);
+   Right[0]=right[0];
+   Right[1]=right[1];
    
   }
  
@@ -105,6 +112,14 @@ public:
  /// Position Vector at Lagrangian coordinate zeta
  void position(const Vector<double>& zeta, Vector<double>& r) const
   {
+   oomph_info << "hierher in TwoDStraightLineFromTwoPoints: "
+              << this << " " 
+              << Left[0] << " "
+              << Left[1] << " "
+              << Right[0] << " "
+              << Right[1] << " "
+              << std::endl;
+   
    // Position Vector
    r[0] = Left[0]+zeta[0]*(Right[0]-Left[0]);
    r[1] = Left[1]+zeta[0]*(Right[1]-Left[1]);
@@ -300,6 +315,14 @@ namespace Parameters
     traction[0] = p * n[0];
     traction[1] = p * n[1];
     traction[2] = p * n[2];
+
+    // Dead load
+    if (Parameters::Problem_case == Parameters::Balance_on_edge)
+     {
+      traction[0] = 0.0;
+      traction[1] = 0.0;
+      traction[2] = p;
+     }
   }
 
 #else
@@ -689,7 +712,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  double B = Parameters::B;
  Ellipse* outer_boundary_ellipse_pt = new Ellipse(A, B);
 
-
+ oomph_info << "hierher ellipse geom obj: " << outer_boundary_ellipse_pt << std::endl;
+ 
  // Storage for outer boundaries (for triangle)
  Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(4);
 
@@ -715,6 +739,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  outer_boundary_ellipse_pt->position(zeta,right);
  TwoDStraightLineFromTwoPoints* straight_line_pt =
   new TwoDStraightLineFromTwoPoints(left,right);
+ 
+ oomph_info << "hierher flat outer geom obj: " << straight_line_pt << std::endl;
 
  bool flatten_one_side=true; 
  if (Parameters::Problem_case==Parameters::Balance_on_edge)
@@ -813,7 +839,11 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     boundary_id = Inner_boundary1;
 
     TriangleMeshCurveSection* boundary3_pt=0;
-    bool use_curviline=true;
+    bool use_curviline=false;
+    if (CommandLineArgs::command_line_flag_has_been_set("--hierher_use_curviline"))
+     {
+      use_curviline=true;
+     }
     if (use_curviline)
      {
 
@@ -825,8 +855,13 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
       TwoDStraightLineFromTwoPoints* straight_line_pt =
        new TwoDStraightLineFromTwoPoints(vertices[0],vertices[1]);
 
+      oomph_info << "hierher curvi inner geom obj: " << straight_line_pt << std::endl;
+       
       double zeta_start=0.0;
       double zeta_end=1.0;
+
+      // Just one segment to mimick the two-vertex polyline version
+      unsigned nsegment=1;
       boundary3_pt =
        new TriangleMeshCurviLine(straight_line_pt, zeta_start,
                                  zeta_end, nsegment, boundary_id);
@@ -914,6 +949,9 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   {
 
   
+   // Let's have a look at the orig mesh
+   Bulk_mesh_pt->output("mesh_before_black_box_upgrade.dat");
+   
    // Create the mesh for the Lagrange multiplier elements that enforce
    // continuity of our smooth solution across different parts of the
    // mesh boundary (only really needed when there are kinks)
@@ -929,7 +967,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     ("split_elements.dat");
  
    
-   // hierher explain
+   // hierher explain and pass rotation flag in!
    C1PlateHelper::upgrade_triangle_mesh_for_c1_plate_bending<ELEMENT>(
     Bulk_mesh_pt,
     Constraint_mesh_pt);
@@ -1227,9 +1265,6 @@ pin_all_displacements_and_rotation_at_centre_node()
 template<class ELEMENT>
 void UnstructuredC1PlateProblem<ELEMENT>::pin_for_balance_on_edge()
 {
-
- // Rotation about edge suppressed?
- bool rotation_about_edge_suppressed=false;
  
  // Pin all nodes along internal boundary "0"
  unsigned num_int_nod=Bulk_mesh_pt->nboundary_node(Inner_boundary0);
@@ -1373,6 +1408,9 @@ int main(int argc, char** argv)
   // Rotate dofs?
   CommandLineArgs::specify_command_line_flag("--rotate_dofs_on_boundary");
 
+  // hierher
+  CommandLineArgs::specify_command_line_flag("--hierher_use_curviline");
+
   // Parse command line
   CommandLineArgs::parse_and_assign();
 
@@ -1427,21 +1465,32 @@ int main(int argc, char** argv)
   // Tweak Newton solver parameters
   problem.max_residuals() = 1.0e3;
   problem.max_newton_iterations() = 100;
-  //problem.newton_solver_tolerance() = 1.0e-11;
 
   // Document the initial state
   problem.doc_solution();
 
+  
   // Set the Poisson ratio
   Parameters::Nu = 0.5;
   
   // Do we want to solve the linear problem?
   // problem.make_linear();
 
-  // Set pressure and incrementation
+  // Set pressure and incrementation for validation cases
   Parameters::P_mag = 0.0;
-  double p_inc = 1.0; // 1.0e-1; // 1.0e-2;
-  unsigned n_step = 30; // 3;
+  double p_inc = 1.0e-2;
+  unsigned n_step = 3;
+
+
+  // Overwrite for "Balance on Edge" case
+  if (Parameters::Problem_case == Parameters::Balance_on_edge)
+   {
+    p_inc = 1.0; 
+    n_step = 30;
+   }
+  
+
+
   for( unsigned i = 0; i < n_step; i++ )
   {
    // Bump
