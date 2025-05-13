@@ -112,14 +112,6 @@ public:
  /// Position Vector at Lagrangian coordinate zeta
  void position(const Vector<double>& zeta, Vector<double>& r) const
   {
-   oomph_info << "hierher in TwoDStraightLineFromTwoPoints: "
-              << this << " " 
-              << Left[0] << " "
-              << Left[1] << " "
-              << Right[0] << " "
-              << Right[1] << " "
-              << std::endl;
-   
    // Position Vector
    r[0] = Left[0]+zeta[0]*(Right[0]-Left[0]);
    r[1] = Left[1]+zeta[0]*(Right[1]-Left[1]);
@@ -888,7 +880,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
        boundary2_pt,
        vertex_to_connect_to);
      }
-    
+
     // Each internal open curve is defined by a vector of
     // TriangleMeshCurveSections
     Vector<TriangleMeshCurveSection*> internal_curve_section2_pt(1);
@@ -899,32 +891,36 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
      new TriangleMeshOpenCurve(internal_curve_section2_pt));
 
     
-    // Open Curve 3
-    vertices[0][0] = 0.0;
-    vertices[0][1] = 0.5;
+
+    // hierher this creates a node that is on three boundaries and (currently overwhelms our lovely
+    // little (and limited-scope) black box helper function:
     
-    vertices[1][0] = 0.0;
-    vertices[1][1] = 0.0;
-    boundary_id = Inner_boundary2;
+    // // Open Curve 3
+    // vertices[0][0] = 0.0;
+    // vertices[0][1] = 0.5;
     
-    TriangleMeshPolyLine* boundary4_pt =
-     new TriangleMeshPolyLine(vertices, boundary_id);
+    // vertices[1][0] = 0.0;
+    // vertices[1][1] = 0.0;
+    // boundary_id = Inner_boundary2;
+    
+    // TriangleMeshPolyLine* boundary4_pt =
+    //  new TriangleMeshPolyLine(vertices, boundary_id);
      
-    // Connect final vertex on this boundary
-    // to middle vertex in the horizontal one:
-    unsigned vertex_to_connect_to=1;
-    boundary4_pt->connect_final_vertex_to_polyline(
-     boundary2_pt,
-     vertex_to_connect_to);
+    // // Connect final vertex on this boundary
+    // // to middle vertex in the horizontal one:
+    // unsigned vertex_to_connect_to=1;
+    // boundary4_pt->connect_final_vertex_to_polyline(
+    //  boundary2_pt,
+    //  vertex_to_connect_to);
   
-    // Each internal open curve is defined by a vector of
-    // TriangleMeshCurveSections
-    Vector<TriangleMeshCurveSection *> internal_curve_section3_pt(1);
-    internal_curve_section3_pt[0] = boundary4_pt;
+    // // Each internal open curve is defined by a vector of
+    // // TriangleMeshCurveSections
+    // Vector<TriangleMeshCurveSection *> internal_curve_section3_pt(1);
+    // internal_curve_section3_pt[0] = boundary4_pt;
     
-    // The open curve that defines this boundary
-    inner_open_boundaries_pt.push_back(
-     new TriangleMeshOpenCurve(internal_curve_section3_pt));
+    // // The open curve that defines this boundary
+    // inner_open_boundaries_pt.push_back(
+    //  new TriangleMeshOpenCurve(internal_curve_section3_pt));
      
    }
 
@@ -965,6 +961,10 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     ("elements_upgraded_to_curved.dat");
    C1PlateHelper::Split_elements_output_stream.open
     ("split_elements.dat");
+   C1PlateHelper::Rotated_node_output_stream.open
+    ("rotated_nodes.dat");
+   C1PlateHelper::Rotated_element_output_stream.open
+    ("rotated_elements.dat");
  
    
    // hierher explain and pass rotation flag in!
@@ -976,6 +976,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
    C1PlateHelper::Duplicated_node_output_stream.close();
    C1PlateHelper::Upgraded_to_curved_edge_element_stream.close();
    C1PlateHelper::Split_elements_output_stream.close();
+   C1PlateHelper::Rotated_node_output_stream.close();
+   C1PlateHelper::Rotated_element_output_stream.close();
 
    // Let's have a look at the new mesh
    Bulk_mesh_pt->output("mesh_black_box_upgrade.dat");
