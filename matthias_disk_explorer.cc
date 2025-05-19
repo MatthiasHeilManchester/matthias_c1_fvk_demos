@@ -217,6 +217,9 @@ private:
 namespace Parameters
 {
 
+ /// Number of plot points
+ unsigned Nplot=5;
+ 
  /// Enumeration of cases
  enum
  {
@@ -775,52 +778,81 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  // Combine
   TriangleMeshClosedCurve* outer_boundary_pt =
   new TriangleMeshClosedCurve(outer_curvilinear_boundary_pt);
- 
- // Internal open boundaries
- //-------------------------
-  
- // We want internal open curves
-  Vector<TriangleMeshOpenCurve *> inner_open_boundaries_pt;
 
- 
- 
- // Internal bit 
   
- // Open curve 1
- Vector<Vector<double> > vertices(3,Vector<double>(2,0.0));
- vertices[0][0] =-0.5*Parameters::A;
- vertices[0][1] = 0.0;
- 
- vertices[1][0] = 0.0;
- vertices[1][1] = 0.0;
- 
- vertices[2][0] = 0.5*Parameters::A;
- vertices[2][1] = 0.0;
- unsigned boundary_id = Inner_boundary0;
- 
- TriangleMeshPolyLine* boundary2_pt =
-  new TriangleMeshPolyLine(vertices, boundary_id);
+  // Internal open boundaries
+  //-------------------------
+  
+  // Represent inner boundaries by curvilines?
+  bool use_curviline=true;
+  if (CommandLineArgs::command_line_flag_has_been_set
+      ("--use_polyline_for_internal_boundaries"))
+   {
+    use_curviline=false;
+   }
+
+  
+  // We want internal open curves
+  Vector<TriangleMeshOpenCurve *> inner_open_boundaries_pt;
+  
+  // Internal bit 
+  
+  // Open curve 1
+  Vector<Vector<double> > vertices(3,Vector<double>(2,0.0));
+  vertices[0][0] =-0.5*Parameters::A;
+  vertices[0][1] = 0.0;
+  
+  vertices[1][0] = 0.0;
+  vertices[1][1] = 0.0;
+  
+  vertices[2][0] = 0.5*Parameters::A;
+  vertices[2][1] = 0.0;
+  unsigned boundary_id = Inner_boundary0;
+  
+  TriangleMeshCurveSection* boundary2_pt=0;
+  if (use_curviline)
+   {
+    // Straight curvilinear line
+    TwoDStraightLineFromTwoPoints* straight_line_pt =
+     new TwoDStraightLineFromTwoPoints(vertices[0],vertices[2]);
+    
+    double zeta_start=0.0;
+    double zeta_end=1.0;
+    
+    // Two segments to mimick the three-vertex polyline version
+    unsigned nsegment=2;
+    boundary2_pt =
+     new TriangleMeshCurviLine(straight_line_pt, zeta_start,
+                               zeta_end, nsegment, boundary_id);
+    
+   }
+  else
+   {
+    boundary2_pt =
+     new TriangleMeshPolyLine(vertices, boundary_id);
+   }
   
   // Each internal open curve is defined by a vector of
   // TriangleMeshCurveSections
   Vector<TriangleMeshCurveSection *> internal_curve_section1_pt(1);
   internal_curve_section1_pt[0] = boundary2_pt;
-    
+  
   // The open curve that defines this boundary
   inner_open_boundaries_pt.push_back(
    new TriangleMeshOpenCurve(internal_curve_section1_pt));
-
-
-  // Make a cross in the middle of the domain (to force splitting
-  // of elements?
-  bool make_cross=true;
- if (Parameters::Problem_case==Parameters::Balance_on_edge)
-  {
-   make_cross=false;
-  }
-  if (make_cross)
+  
+  
+  // Make a T-shape in the middle of the domain (to force splitting
+  // of elements)
+  bool make_t_shape=false;
+  if (CommandLineArgs::command_line_flag_has_been_set
+      ("--use_t_shape_internal_boundaries"))
    {
-
+    make_t_shape=true;
+   }
+  if (make_t_shape)
+   {
+    
     // Open Curve 2
     Vector<Vector<double> > vertices(2,Vector<double>(2,0.0));
     vertices[0][0] = 0.0;
@@ -831,18 +863,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     boundary_id = Inner_boundary1;
 
     TriangleMeshCurveSection* boundary3_pt=0;
-    bool use_curviline=false;
-    if (CommandLineArgs::command_line_flag_has_been_set("--hierher_use_curviline"))
-     {
-      use_curviline=true;
-     }
     if (use_curviline)
      {
-
-      // hierher Aidan: this gives me an error:
-      // "Decreasing parametric coordinate. Parametric coordinate must increase as the edge is traversed anti-clockwise."
-      // even if I reverse the direction
-      
       // Straight curvilinear line
       TwoDStraightLineFromTwoPoints* straight_line_pt =
        new TwoDStraightLineFromTwoPoints(vertices[0],vertices[1]);
@@ -859,14 +881,11 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
                                  zeta_end, nsegment, boundary_id);
             
       // Connect final vertex on this boundary
-      // to middle vertex in the horizontal one:
-      unsigned vertex_to_connect_to=1;
-      boundary3_pt->connect_final_vertex_to_polyline(
-       boundary2_pt,
-       vertex_to_connect_to);
-      // boundary3_pt->connect_initial_vertex_to_polyline(
-      //  boundary2_pt,
-      //  vertex_to_connect_to);
+      // to middle of the horizontal one:
+      double zeta_to_connect_to=0.5;
+      boundary3_pt->connect_final_vertex_to_curviline(
+       dynamic_cast<TriangleMeshCurviLine*>(boundary2_pt),
+       zeta_to_connect_to);
      }
     else
      {
@@ -877,7 +896,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
       // to middle vertex in the horizontal one:
       unsigned vertex_to_connect_to=1;
       boundary3_pt->connect_final_vertex_to_polyline(
-       boundary2_pt,
+       dynamic_cast<TriangleMeshPolyLine*>(boundary2_pt),
        vertex_to_connect_to);
      }
 
@@ -890,7 +909,6 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     inner_open_boundaries_pt.push_back(
      new TriangleMeshOpenCurve(internal_curve_section2_pt));
 
-    
 
     // hierher this creates a node that is on three boundaries and (currently overwhelms our lovely
     // little (and limited-scope) black box helper function:
@@ -947,6 +965,39 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   
    // Let's have a look at the orig mesh
    Bulk_mesh_pt->output("mesh_before_black_box_upgrade.dat");
+
+
+
+
+   // // hierher test what element splitting does ad confirm that it updates
+   // the boundary lookup scheme
+   // {
+   //  // Let's have a look at the new mesh
+   //  Bulk_mesh_pt->output("mesh_before_splitting.dat");
+   //  doc_boundary_coords();
+   //  std::string name_prefix="test_before_splitting_";
+   //  doc_boundary_elements_and_faces(Bulk_mesh_pt,name_prefix);
+
+   //  // Split elements that have multiple edges on a boundary
+   //  // Note: Sets up the boundary loopup scheme too.
+   //  Bulk_mesh_pt->
+   //   template split_elements_with_multiple_boundary_edges<ELEMENT>();
+   //  // (Split_elements_output_stream);
+    
+    
+    
+   //  // Let's have a look at the new mesh
+   //  Bulk_mesh_pt->output("mesh_after_splitting.dat");
+   //  doc_boundary_coords();
+   //  name_prefix="test_after_splitting_";
+   //  doc_boundary_elements_and_faces(Bulk_mesh_pt,name_prefix);
+
+   // }
+
+
+
+
+
    
    // Create the mesh for the Lagrange multiplier elements that enforce
    // continuity of our smooth solution across different parts of the
@@ -984,6 +1035,10 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
    doc_boundary_coords();
    std::string name_prefix="test_";
    doc_boundary_elements_and_faces(Bulk_mesh_pt,name_prefix);
+
+
+
+   
   
   }
 
@@ -1121,7 +1176,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   
    
   // Update the corner constraints based on the applied
-  // boundary conditions
+  // boundary conditions. NOTE: This must be called
+  // after all boundary conditions have been applied.
   unsigned n_el = Constraint_mesh_pt->nelement();
   for(unsigned i_el = 0; i_el < n_el; i_el++)
    {
@@ -1210,6 +1266,12 @@ pin_all_displacements_and_rotation_at_centre_node()
      unsigned k_type=0;
      pinned_node_pt->pin(first_nodal_type_index + k_type);
      pinned_node_pt->set_value(first_nodal_type_index + k_type, value);
+
+     oomph_info << "Pinning (in-plane) " << first_nodal_type_index + k_type
+                << " at "
+                << pinned_node_pt->x(0) << " "
+                << pinned_node_pt->x(1) << " "
+                << std::endl;
     }
    else
     {
@@ -1218,6 +1280,12 @@ pin_all_displacements_and_rotation_at_centre_node()
       {
        pinned_node_pt->pin(first_nodal_type_index + k_type);
        pinned_node_pt->set_value(first_nodal_type_index + k_type, value);
+       
+       oomph_info << "Pinning (oo-plane) " << first_nodal_type_index + k_type
+                  << " at "
+                  << pinned_node_pt->x(0) << " "
+                  << pinned_node_pt->x(1) << " "
+                  << std::endl;
       }
     }
     
@@ -1228,6 +1296,12 @@ pin_all_displacements_and_rotation_at_centre_node()
      unsigned k_type=0;
      pinned_rotation_node_pt->pin(first_nodal_type_index + k_type);
      pinned_rotation_node_pt->set_value(first_nodal_type_index + k_type, value);
+     
+     oomph_info << "Pinning (z rot via y displ) " << first_nodal_type_index + k_type
+                << " at "
+                << pinned_rotation_node_pt->x(0) << " "
+                << pinned_rotation_node_pt->x(1) << " "
+                << std::endl;
     }
     
   }
@@ -1240,7 +1314,7 @@ pin_all_displacements_and_rotation_at_centre_node()
  // to)
  // - In-plane dofs are values 0 and 1
  // - Out of plane displacement is value 2;
- // - x and y (or t and n) derivatives of w are values 3 and 4.
+ // - x and y (or n and t) derivatives of w are values 3 and 4.
  pinned_node_pt->pin(0);
  pinned_node_pt->set_value(0,0.0);
  pinned_node_pt->pin(1);
@@ -1252,9 +1326,21 @@ pin_all_displacements_and_rotation_at_centre_node()
  pinned_node_pt->pin(4);
  pinned_node_pt->set_value(4,0.0);
  
+ oomph_info << "Pinning (FvK dofs 0,1,2,3,4) "
+            << " at "
+            << pinned_node_pt->x(0) << " "
+            << pinned_node_pt->x(1) << " "
+            << std::endl;
+ 
  // Pin y displacement at node at furthest x distance to suppress rotation about
  // the vertical axis
  pinned_rotation_node_pt->pin(1);
+ 
+ oomph_info << "Pinning (FvK dofs 1) "
+            << " at "
+            << pinned_rotation_node_pt->x(0) << " "
+            << pinned_rotation_node_pt->x(1) << " "
+            << std::endl;
  
 #endif
 }
@@ -1368,13 +1454,11 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution()
   ofstream some_file;
   char filename[100];
 
-  // Number of plot points
-  unsigned npts = 5; // 50;
-
+  
   sprintf(filename,"%s/soln%i.dat",Doc_info.directory().c_str(),
           Doc_info.number());
   some_file.open(filename);
-  Bulk_mesh_pt->output(some_file,npts);
+  Bulk_mesh_pt->output(some_file,Parameters::Nplot);
   some_file.close();
 
   // Increment the doc_info number
@@ -1399,6 +1483,15 @@ int main(int argc, char** argv)
   // were actually specified
 
   // Clamped boundary conditions?
+  CommandLineArgs::specify_command_line_flag("--nplot",&Parameters::Nplot);
+
+  // T-shaped internal boundary
+  CommandLineArgs::specify_command_line_flag("--use_t_shape_internal_boundaries");
+
+  // Use polyline for internal boundaries
+  CommandLineArgs::specify_command_line_flag("--use_polyline_for_internal_boundaries");
+
+  // Clamped boundary conditions?
   CommandLineArgs::specify_command_line_flag("--use_clamped_bc");
 
   // Pinned boundary conditions?
@@ -1407,11 +1500,8 @@ int main(int argc, char** argv)
   // Balance on edge boundary conditions?
   CommandLineArgs::specify_command_line_flag("--use_balance_on_edge_bc");
   
-  // Rotate dofs?
+  // Rotate dofs? hierher actually handle this! 
   CommandLineArgs::specify_command_line_flag("--rotate_dofs_on_boundary");
-
-  // hierher
-  CommandLineArgs::specify_command_line_flag("--hierher_use_curviline");
 
   // Parse command line
   CommandLineArgs::parse_and_assign();
@@ -1488,7 +1578,7 @@ int main(int argc, char** argv)
   if (Parameters::Problem_case == Parameters::Balance_on_edge)
    {
     p_inc = 1.0; 
-    n_step = 30;
+    n_step = 3; // hierher 30;
    }
   
 
