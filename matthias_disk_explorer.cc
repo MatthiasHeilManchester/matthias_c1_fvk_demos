@@ -229,6 +229,9 @@ namespace Parameters
   Free_edges
  };
 
+ /// Rotate coordinates on curvilinear boundaries?
+ bool Rotate_coordinates_on_all_curvilinear_boundaries=true;
+
  /// Which case are we doing
  unsigned Problem_case = Free_edges;
  
@@ -1018,10 +1021,11 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     ("rotated_elements.dat");
  
    
-   // hierher explain and pass rotation flag in!
+   // Rotate coordinates on curvilinear boundaries?
    C1PlateHelper::upgrade_triangle_mesh_for_c1_plate_bending<ELEMENT>(
     Bulk_mesh_pt,
-    Constraint_mesh_pt);
+    Constraint_mesh_pt,
+    Parameters::Rotate_coordinates_on_all_curvilinear_boundaries);
 
    // Done
    C1PlateHelper::Duplicated_node_output_stream.close();
@@ -1451,16 +1455,28 @@ void UnstructuredC1PlateProblem<ELEMENT>::pin_for_balance_on_edge()
 template<class ELEMENT>
 void UnstructuredC1PlateProblem<ELEMENT>::doc_solution()
 {
-  ofstream some_file;
-  char filename[100];
+ ofstream some_file,some_file2;
+ char filename[100];
+ 
+ 
+ sprintf(filename,"%s/soln%i.dat",Doc_info.directory().c_str(),
+         Doc_info.number());
+ some_file.open(filename);
+ Bulk_mesh_pt->output(some_file ,Parameters::Nplot);
+ some_file.close();
 
-  
-  sprintf(filename,"%s/soln%i.dat",Doc_info.directory().c_str(),
-          Doc_info.number());
-  some_file.open(filename);
-  Bulk_mesh_pt->output(some_file,Parameters::Nplot);
-  some_file.close();
+ 
+ sprintf(filename,"%s/full_soln%i.dat",Doc_info.directory().c_str(),
+         Doc_info.number());
+ some_file2.open(filename);
+ unsigned nel=Bulk_mesh_pt->nelement();
+ for (unsigned e=0;e<nel;e++)
+  {
+   dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(e))->full_output(some_file2,Parameters::Nplot);
+  }
 
+ some_file2.close();
+ 
   // Increment the doc_info number
   Doc_info.number()++;
 
@@ -1500,8 +1516,9 @@ int main(int argc, char** argv)
   // Balance on edge boundary conditions?
   CommandLineArgs::specify_command_line_flag("--use_balance_on_edge_bc");
   
-  // Rotate dofs? hierher actually handle this! 
-  CommandLineArgs::specify_command_line_flag("--rotate_dofs_on_boundary");
+  // Rotate coords?
+  CommandLineArgs::specify_command_line_flag
+   ("--do_not_rotate_coords_on_curved_boundaries");
 
   // Parse command line
   CommandLineArgs::parse_and_assign();
@@ -1509,11 +1526,18 @@ int main(int argc, char** argv)
   // Doc what has actually been specified on the command line
   CommandLineArgs::doc_specified_flags();
 
+  if (CommandLineArgs::command_line_flag_has_been_set
+      ("--do_not_rotate_coords_on_curved_boundaries"))
+   {
+    Parameters::Rotate_coordinates_on_all_curvilinear_boundaries=false;
+   }
+  
+  
   // Check consistency
   if (CommandLineArgs::command_line_flag_has_been_set("--use_clamped_bc"))
   {
     Parameters::Problem_case = Parameters::Clamped_validation;
-    if (!CommandLineArgs::command_line_flag_has_been_set("--rotate_dofs_on_boundary"))
+    if (!Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
      {
       oomph_info << "clamped bcs require rotated dofs on boundary" << std::endl;
       abort();
@@ -1524,7 +1548,7 @@ int main(int argc, char** argv)
   if (CommandLineArgs::command_line_flag_has_been_set("--use_pinned_bc"))
   {
     Parameters::Problem_case = Parameters::Pinned_validation;
-    if (!CommandLineArgs::command_line_flag_has_been_set("--rotate_dofs_on_boundary"))
+    if (!Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
      {
       oomph_info << "pinned bcs require rotated dofs on boundary" << std::endl;
       abort();
