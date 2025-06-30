@@ -17,7 +17,19 @@ noinst_PROGRAMS = unrotated_square \
                   star_trek \
                   triangular_plate \
                   axisym_displ_based_fvk \
-                  element_test
+                  element_test \
+                  rupinder_fvk_axisymmetric
+
+
+
+
+#-Odd ones out---------------------------------------------------------
+# Sources for axisym driver
+rupinder_fvk_axisymmetric_SOURCES = rupinder_fvk_axisymmetric.cc 
+# Required libraries: 
+rupinder_fvk_axisymmetric_LDADD = -L@libdir@ -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
+
+
 
 #-Odd ones out---------------------------------------------------------
 # Sources for axisym driver
