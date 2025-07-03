@@ -686,6 +686,10 @@ private:
   /// Doc info object for labeling output
   DocInfo Doc_info;
 
+ // The Line Visualiser.
+ LineVisualiser* LV_pt;
+
+
 }; // end_of_problem_class
 
 
@@ -1204,6 +1208,26 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   sprintf(filename, "RESLT/trace.dat");
   Trace_file.open(filename);
 
+
+  
+  // Setup sample points for line visualiser
+  unsigned  npt=100;
+  Vector<Vector<double> > coord_vec(npt);
+  coord_vec[0].resize(2);
+  coord_vec[0][0]=0.0;
+  coord_vec[0][1]=0.0;
+  for (unsigned j=1;j<npt;j++)
+   {
+    coord_vec[j].resize(2);
+    coord_vec[j][0]=double(j)/double(npt);
+    coord_vec[j][1]=0.0;
+   }
+  
+  // Setup line visualiser
+  LV_pt=new LineVisualiser(Bulk_mesh_pt,
+                           coord_vec);
+  
+   
 } // end Constructor
 
 
@@ -1465,7 +1489,11 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution()
  Bulk_mesh_pt->output(some_file ,Parameters::Nplot);
  some_file.close();
 
+
+
+#ifndef USE_KS
  
+ // Full soln (apparently not implemented for KS; hierher add it)
  sprintf(filename,"%s/full_soln%i.dat",Doc_info.directory().c_str(),
          Doc_info.number());
  some_file2.open(filename);
@@ -1474,9 +1502,20 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution()
   {
    dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(e))->full_output(some_file2,Parameters::Nplot);
   }
-
  some_file2.close();
+
+ #endif
  
+ // Output line visualiser solution 
+ sprintf(filename,"%s/line_soln%i.dat",
+         Doc_info.directory().c_str(),
+         Doc_info.number());
+ some_file.open(filename);
+ LV_pt->output(some_file);
+ some_file.close();
+
+
+
   // Increment the doc_info number
   Doc_info.number()++;
 
