@@ -1222,12 +1222,21 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     coord_vec[j][0]=double(j)/double(npt);
     coord_vec[j][1]=0.0;
    }
+
+  
+  // The C1 elements don't provide a standard implementation
+  // of dshape(s,...) so locate_zeta has to use finite
+  // differencing. Call this before setting up the
+  // line visualiser; this is where the locate_zeta happens!
+  Locate_zeta_helpers::Evaluate_dzeta_ds_by_fd=true;
+
   
   // Setup line visualiser
   LV_pt=new LineVisualiser(Bulk_mesh_pt,
                            coord_vec);
+
+
   
-   
 } // end Constructor
 
 
