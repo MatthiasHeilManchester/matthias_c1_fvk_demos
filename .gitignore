@@ -13,8 +13,8 @@ triangular_plate
 axisym_displ_based_fvk
 
 # Bash scripts (except for a template)
-*.bash
-!template.bash
+#*.bash
+#!template.bash
 
 # Executible outputs
 ARCHIVE*/

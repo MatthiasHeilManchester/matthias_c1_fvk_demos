@@ -545,10 +545,10 @@ public:
           
           // Check if it is on the boundary
           if (nod_pt->is_on_boundary(b))
-           {
-#ifdef PARANOID
+           {            
             // We should only have one coordinate on this boundary
             unsigned nzeta=nod_pt->ncoordinates_on_boundary(b);
+#ifdef PARANOID
             if (nzeta!=1)
              {
               oomph_info << "Why do we have more than one boundary coordinate?"
@@ -1568,6 +1568,20 @@ int main(int argc, char** argv)
   CommandLineArgs::specify_command_line_flag
    ("--do_not_rotate_coords_on_curved_boundaries");
 
+  // Element area
+  CommandLineArgs::specify_command_line_flag("--el_area",
+                                             &Parameters::Element_area);
+  
+  // Square outer boundary (straight curvilines)
+  CommandLineArgs::specify_command_line_flag
+   ("--outer_boundary_straight_curved");
+  
+  // Square outer boundary (polygonal)
+  CommandLineArgs::specify_command_line_flag
+   ("--outer_boundary_straight_poly");
+
+  // hierher check that not both are specified
+  
   // Parse command line
   CommandLineArgs::parse_and_assign();
 
