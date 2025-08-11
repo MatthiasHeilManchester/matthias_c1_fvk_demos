@@ -244,6 +244,10 @@ namespace Parameters
  /// Poisson ratio
  double Nu = 0.5;
  
+ /// Damping constant for damped solves (magnitude sort of irrelevant
+ /// since the adaptive timestepping will kick in anyway).
+ double Mu =1.0; // hierher reset via command line. 
+ 
  /// Nondimensional thickness of plate
  double Thickness = 0.01;
 
@@ -269,6 +273,12 @@ namespace Parameters
  /// Pressure magnitude
   double P_mag = 0.0;
 
+ /// pressure perturbation
+ double P_cos=1.0;
+
+ /// Wavenumber for pressure perturbation
+ unsigned N_cos=6;
+ 
  /// Element area
  double Element_area = 0.5;
 
@@ -328,7 +338,8 @@ namespace Parameters
  /// Pressure depending on the position (x,y)
   void get_pressure(const Vector<double>& x, double& pressure)
   {
-   pressure = P_mag;
+   double phi=atan2(x[1],x[0]);
+   pressure = P_mag + P_cos*cos(phi*double(N_cos));
   }
 
   /// In plane forcing (shear stress) depending on the position (x,y)
@@ -397,6 +408,7 @@ namespace Parameters
   
  };
 
+ 
 } // end parameters namespace
 
 
@@ -570,8 +582,233 @@ public:
      outfile.close();
     }
   }
- 
 
+
+
+ /// Typedef for the function pointer to the function that allows
+ /// documtating the progress of the damped solve
+ typedef void (*DampedSolveDocSolutionFctPt)(const unsigned&);
+
+ 
+// hierher move into base class
+/// Used damped solves to get close to a steady solution, when close
+/// enough, attempt a steady solve. If that fails, be stricter about the
+/// meaning of "close enough" and repeat until a steady solve succeeds.
+///
+// hierher update
+/// Expects:
+///   dt_supplied_guess -- a guess for a good timestep size
+///             epsilon -- an 'error tolerance' for the timestepper to limit
+///                        the size of a damped step
+/// Accepts:
+///        doc_unsteady -- do we document every unsteady (nonphysical) solve
+///   begin_with_steady -- do we begin by trying a steady solve
+///
+/// Returns:
+///   A tuple containing suggestions to use as the inputs in the next
+///   damped_solve. First a double suggestion for dt which is the timestep
+///   of the first successful solve -- if the size of deformation is roughly
+///   the same, it should work fine. Secondly a bool suggestion for
+///   begin_with_steady which is true if this damped_solve took <2 timesteps.
+// [zdec] Thought the tuple with begin_with_steady suggestion was really clever
+// and efficient but it doesn't fucking work half the time. Maybe aways
+// start with one damped step...
+double damped_solve(
+ const double& dt_supplied_guess, // hierher rename
+ const double& epsilon, // rename
+ DampedSolveDocSolutionFctPt doc_soln_fct_pt=0)
+  {
+   // We are unsteady until a steady solve succeeds
+   bool dofs_are_steady = false;
+
+   // This used to be an input parameter but generally it's too wobbly
+   // so let's set it to false here; can re-enable if it's ever found to be
+   // useful
+   bool begin_with_steady_solve=false;
+   
+   // Max residual of the steady problem before we attempt a steady solve
+   double sufficiently_small = 1.0e-2;
+   
+   // Timestep size
+   double dt = dt_supplied_guess;
+   
+  // Try steady indicates when we should attempt a steady solve
+  bool try_steady = begin_with_steady_solve;
+  
+  // Value to be returned for initial guess for next damped_solve dt
+  double suggested_dt_for_next_damped_solve = dt;
+  
+  // Only set dt_initial_guess once, after the first successful solve
+  bool suggested_dt_for_next_damped_solve_is_unset = true;
+
+  // Counter for unsteady solves
+  unsigned unsteady_solve_counter=0;
+  
+  // If we are documenting the damped stage, create an initial state before any
+  // unsteady solves have been done.
+  if (doc_soln_fct_pt!=0)
+   {
+    doc_soln_fct_pt(unsteady_solve_counter);
+    unsteady_solve_counter++;
+   }
+  
+  
+  // Keep looping until all the dofs are steady
+  while (!dofs_are_steady)
+   {
+    //------------------------------------------------------------------------
+    // If we are supposed to try a steady solve, do it
+    if (try_steady)
+     {
+      oomph_info << "ATTEMPT A STEADY SOLVE" << std::endl;
+      
+      // Store the dofs before a steady solve so that they can be put back in
+      // case it fails
+      store_current_dof_values();
+
+      // Get the max residual in case we need it to adjust sufficiently_small
+      DoubleVector res;
+      get_residuals(res);
+      double max_steady_residual = res.max();
+      try
+       {
+        // <<< Solve >>>
+        steady_newton_solve();
+        
+        // If that worked, we have achieved steady state.
+        // Celebrate and take note
+        oomph_info << "\nHOORAY\n"
+                   << "Steady solve was successful, damped solve complete\n"
+                   << std::endl;
+        dofs_are_steady = true;
+        
+        // If we are documenting the unsteady states, add the final solution to
+        // the unsteady solution outputs
+        if (doc_soln_fct_pt!=0)
+         {
+          doc_soln_fct_pt(unsteady_solve_counter);
+          unsteady_solve_counter++;
+         }
+       }
+      // If the steady solve fails, we need to tidy up before carrying on
+      catch (OomphLibError& error)
+       {
+        // If our tolerance to attempt a steady solve is smaller than the
+        // tolerance, then this implies that the initial residual was within
+        // tolerance and we still got an error! Odd.
+        if (sufficiently_small < newton_solver_tolerance())
+         {
+          // hierher add to error stream?
+          oomph_info << "\nUH OH\n"
+                     << "\"sufficiently small\" is now " << sufficiently_small
+                     << " which is smaller than the Newton solver tolerance.\n"
+                     << "For some reason we still gt an error in the"
+                     << " steady Newton solve. \n"
+                     << "Giving up on damped solves..." << std::endl;
+          throw error;
+         } // End of if tolerance is to small
+        else
+         {
+          oomph_info << "\nNOT STEADY ENOUGH.\n"
+                     << "\"sufficiently_small\" is insufficiently small \n"
+                     << "i.e. we've stopped the unsteady solves too early\n"
+                     << "Decreasing it from " << sufficiently_small
+                     << " to " << max_steady_residual / 2.0 << ".\n"
+                     << "Continuing with damped solves...\n"
+                     << std::endl;
+          
+          // Decrease the threshold for attempting steady solves as this one
+          // didn't work
+          sufficiently_small = max_steady_residual / 2.0;
+          
+          // Go back to the state we were in before attempting the steady solve
+          restore_dof_values();
+          for (unsigned i = 0; i < ntime_stepper(); i++)
+           {
+            time_stepper_pt(i)->undo_make_steady();
+           }
+          
+          // Stop trying steady solves
+          try_steady = false;
+          
+          // Keep calm and carry on // hierher Aidan: what is this?
+          error.disable_error_message();
+          
+         } // End of else tolerance is not too small
+       } // End of catch error
+     } // End of if try_steady
+    
+    //------------------------------------------------------------------------
+    // Try get us close to a steady solution by solving the damped version of
+    // the equations. When it is time to try a steady solve, break this loop.
+    while(!try_steady)
+     {
+      //----------------------------------------------------------------------
+      // Begin by doing a damped solve
+      oomph_info << "NEW DAMPED PSEUDO-TIME STEP WITH: dt = "
+                 << dt << std::endl;
+      double dt_next = adaptive_unsteady_newton_solve(dt, epsilon);
+      dt = dt_next;
+      
+      // If we haven't set the initial guess for the next damped solve dt, then
+      // set it now. It should be the recommended timestep after the first
+      // successful solve. Assuming the following damped solve will start in a
+      // roughly similar state to this one, this is appropriate.
+      if (suggested_dt_for_next_damped_solve_is_unset)
+       {
+        suggested_dt_for_next_damped_solve = dt_next;
+        suggested_dt_for_next_damped_solve_is_unset = false;
+       }
+      
+      // If we are documenting the unsteady solutions then do so, else just
+      // just increase the unsteady step counter to keep count of damped steps
+      if (doc_soln_fct_pt!=0)
+       {
+        doc_soln_fct_pt(unsteady_solve_counter);
+        unsteady_solve_counter++;
+       }
+      
+      //------------------------------------------------------------------------
+      // Check how close we are to a steady solution by getting the steady
+      // max residual, if it is sufficiently small, try a steady solve.
+      // If that doesn't work, restrict what it means to be "sufficiently small"
+      // and return to unsteady. We repeat this until the steady solve works,
+      // or, we give up.
+      
+      // First set the timesteppers to steady
+      for (unsigned i = 0; i < ntime_stepper(); i++)
+       {
+        time_stepper_pt(i)->make_steady();
+       }
+      
+      // Then get the residual
+      DoubleVector res;
+      get_residuals(res);
+      double max_steady_residual = res.max();
+      oomph_info << std::endl
+                 << "The max steady residual is " << max_steady_residual
+                 << std::endl;
+      
+      // If it is "sufficiently small" then try a steady solve
+      try_steady = max_steady_residual < sufficiently_small;
+      
+      // Reset time steppers
+      for (unsigned i = 0; i < ntime_stepper(); i++)
+       {
+        time_stepper_pt(i)->undo_make_steady();
+       }
+     } // End of while(!try_steady)
+   } // End of while(!steady)
+  
+  
+  // Done; return most recent suggestion for timestep
+  return suggested_dt_for_next_damped_solve;
+  
+  }
+ 
+ 
+ 
+ 
 private:
 
 
@@ -703,6 +940,10 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  : Element_area(element_area)
 {
 
+ // Allocate the timestepper only used in anger for damped solve
+ add_time_stepper_pt(new BDF<1>);
+
+
  // Build the mesh
  //================
  
@@ -742,9 +983,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  TwoDStraightLineFromTwoPoints* straight_line_pt =
   new TwoDStraightLineFromTwoPoints(left,right);
  
- oomph_info << "hierher flat outer geom obj: " << straight_line_pt << std::endl;
-
- bool flatten_one_side=true; 
+ bool flatten_one_side=false; 
  if (Parameters::Problem_case==Parameters::Balance_on_edge)
   {
    flatten_one_side=false;
@@ -961,7 +1200,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
   mesh_parameters.internal_open_curves_pt() = inner_open_boundaries_pt;
 
   // Build an assign bulk mesh
-  Bulk_mesh_pt=new TriangleMesh<ELEMENT>(mesh_parameters);
+  Bulk_mesh_pt=new TriangleMesh<ELEMENT>(mesh_parameters,
+                                         time_stepper_pt());
 
 
   
@@ -1076,6 +1316,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     // hierher: pressure --> traction in src
     el_pt->pressure_fct_pt() = &Parameters::get_traction;
 
+    el_pt->mu_pt()=&Parameters::Mu;
+
     // hierher why do we need thickness and (two!) etas?
     el_pt->thickness_pt() = &Parameters::Thickness;
     el_pt->nu_pt() = &Parameters::Nu;
@@ -1089,6 +1331,9 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
 #else
     
     el_pt->pressure_fct_pt() = &Parameters::get_pressure;
+
+    el_pt->mu_pt()=&Parameters::Mu;
+    
     el_pt->nu_pt() = &Parameters::Nu;
     el_pt->eta_pt() = &Parameters::Eta;
 
@@ -1532,6 +1777,42 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution()
 
 
 
+
+//========================================================================
+/// Namespace for function that calls doc_solution() during the damped
+/// solves
+//========================================================================
+namespace DocProgressOfDampedSolutions
+{
+
+ /// Pointer to the problem class (to get access the doc solution function
+ #ifdef USE_KS
+ 
+  UnstructuredC1PlateProblem<KoiterSteigmannC1CurvableBellElement>*
+  Problem_pt=0;
+
+#else
+
+ UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>>*
+   Problem_pt=0;
+
+#endif
+
+ /// Function to call doc_solution during damped solves
+ void doc_solution_during_damped_solve(const unsigned& i_step)
+ {
+  oomph_info << "Docing solution for damped solve step "
+             << i_step << std::endl;
+
+  // needs to arg; bumps up counter by itself.
+  Problem_pt->doc_solution();
+  
+ }
+
+} // end of namespace
+
+
+
 //=======start_of_main========================================
 ///Driver code 
 //============================================================
@@ -1639,6 +1920,9 @@ int main(int argc, char** argv)
 
 #endif
 
+  // Pass problem pointer to namespace for docing damped solves
+  DocProgressOfDampedSolutions::Problem_pt=&problem;
+
   
   // Tweak Newton solver parameters
   problem.max_residuals() = 1.0e3;
@@ -1656,8 +1940,8 @@ int main(int argc, char** argv)
 
   // Set pressure and incrementation for validation cases
   Parameters::P_mag = 0.0;
-  double p_inc = 1.0e-2;
-  unsigned n_step = 3;
+  double p_inc = 0.01; // hierher 1.0e-2;
+  unsigned n_step = 100; // 3;
 
 
   // Overwrite for "Balance on Edge" case
@@ -1673,9 +1957,29 @@ int main(int argc, char** argv)
   {
    // Bump
    Parameters::P_mag += p_inc;
-   
-   // Solve the system
-   problem.newton_solve();
+
+   bool do_steady_newton_solve=false;
+   if (do_steady_newton_solve)
+    {
+     // Solve the system
+     problem.newton_solve();
+    }
+   else
+    {
+     // initial value for timestep
+     double dt=1.0;
+     
+     // tolerance for adaptive timestepping
+     double epsilon=1.0e-3;
+
+     // Damped solve
+     double suggested_next_dt=
+      problem.damped_solve(dt,epsilon,
+                           &DocProgressOfDampedSolutions::doc_solution_during_damped_solve);
+     
+     oomph_info << "Suggested next dt = " << suggested_next_dt << std::endl;
+    }
+
    
    // Document the current solution
    problem.doc_solution();
