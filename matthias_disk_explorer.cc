@@ -246,7 +246,7 @@ namespace Parameters
  
  /// Damping constant for damped solves (magnitude sort of irrelevant
  /// since the adaptive timestepping will kick in anyway).
- double Mu =1.0; // hierher reset via command line. 
+ double Mu =1.0; 
  
  /// Nondimensional thickness of plate
  double Thickness = 0.01;
@@ -274,7 +274,7 @@ namespace Parameters
   double P_mag = 0.0;
 
  /// pressure perturbation
- double P_cos=1.0;
+ double P_cos=0.0;
 
  /// Wavenumber for pressure perturbation
  unsigned N_cos=6;
@@ -591,31 +591,25 @@ public:
 
  
 // hierher move into base class
-/// Used damped solves to get close to a steady solution, when close
+/// Use damped solves to get close to a steady solution; when close
 /// enough, attempt a steady solve. If that fails, be stricter about the
 /// meaning of "close enough" and repeat until a steady solve succeeds.
 ///
-// hierher update
 /// Expects:
-///   dt_supplied_guess -- a guess for a good timestep size
-///             epsilon -- an 'error tolerance' for the timestepper to limit
+///   dt_supplied_guess: a guess for a good timestep size
+///   epsilon:           an 'error tolerance' for the timestepper to limit
 ///                        the size of a damped step
-/// Accepts:
-///        doc_unsteady -- do we document every unsteady (nonphysical) solve
-///   begin_with_steady -- do we begin by trying a steady solve
-///
+///  doc_soln_fct_pt:    function pointer to void function that takes
+///                      unsigned (representing the number of the current
+///                      damped solve) as arg, This function usually calls
+///                      the doc_solution(...) fct of the underlying problem
+///                      class. Defaults to null, in which case no doc is
+///                      produced.
 /// Returns:
-///   A tuple containing suggestions to use as the inputs in the next
-///   damped_solve. First a double suggestion for dt which is the timestep
-///   of the first successful solve -- if the size of deformation is roughly
-///   the same, it should work fine. Secondly a bool suggestion for
-///   begin_with_steady which is true if this damped_solve took <2 timesteps.
-// [zdec] Thought the tuple with begin_with_steady suggestion was really clever
-// and efficient but it doesn't fucking work half the time. Maybe aways
-// start with one damped step...
+///   a double suggesting the timestep dt for the next solve
 double damped_solve(
- const double& dt_supplied_guess, // hierher rename
- const double& epsilon, // rename
+ const double& dt_supplied_guess, 
+ const double& epsilon, 
  DampedSolveDocSolutionFctPt doc_soln_fct_pt=0)
   {
    // We are unsteady until a steady solve succeeds
@@ -698,7 +692,6 @@ double damped_solve(
         // tolerance and we still got an error! Odd.
         if (sufficiently_small < newton_solver_tolerance())
          {
-          // hierher add to error stream?
           oomph_info << "\nUH OH\n"
                      << "\"sufficiently small\" is now " << sufficiently_small
                      << " which is smaller than the Newton solver tolerance.\n"
@@ -954,8 +947,6 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  double A = Parameters::A;
  double B = Parameters::B;
  Ellipse* outer_boundary_ellipse_pt = new Ellipse(A, B);
-
- oomph_info << "hierher ellipse geom obj: " << outer_boundary_ellipse_pt << std::endl;
  
  // Storage for outer boundaries (for triangle)
  Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(4);
@@ -1114,8 +1105,6 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
       // Straight curvilinear line
       TwoDStraightLineFromTwoPoints* straight_line_pt =
        new TwoDStraightLineFromTwoPoints(vertices[0],vertices[1]);
-
-      oomph_info << "hierher curvi inner geom obj: " << straight_line_pt << std::endl;
        
       double zeta_start=0.0;
       double zeta_end=1.0;
@@ -1313,7 +1302,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     //Set the traction and physical constants
 #ifdef USE_KS
     
-    // hierher: pressure --> traction in src
+    // hierher: rename pressure --> traction in src
     el_pt->pressure_fct_pt() = &Parameters::get_traction;
 
     el_pt->mu_pt()=&Parameters::Mu;
@@ -1324,14 +1313,14 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     el_pt->eta_u_pt() = &Parameters::Eta_u;
     el_pt->eta_sigma_pt() = &Parameters::Eta_sigma;
 
-    
-    // hierher need an example that uses this!
-    // el_pt->mu_pt() = &Parameters::Mu;
+    // Damping parameter for damped solve
+    el_pt->mu_pt() = &Parameters::Mu;
 
 #else
     
     el_pt->pressure_fct_pt() = &Parameters::get_pressure;
 
+    // Damping parameter for damped solve
     el_pt->mu_pt()=&Parameters::Mu;
     
     el_pt->nu_pt() = &Parameters::Nu;
@@ -1853,15 +1842,21 @@ int main(int argc, char** argv)
   CommandLineArgs::specify_command_line_flag("--el_area",
                                              &Parameters::Element_area);
   
-  // Square outer boundary (straight curvilines)
-  CommandLineArgs::specify_command_line_flag
-   ("--outer_boundary_straight_curved");
+  // // Square outer boundary (straight curvilines)
+  // CommandLineArgs::specify_command_line_flag
+  //  ("--outer_boundary_straight_curved");
   
-  // Square outer boundary (polygonal)
-  CommandLineArgs::specify_command_line_flag
-   ("--outer_boundary_straight_poly");
+  // // Square outer boundary (polygonal)
+  // CommandLineArgs::specify_command_line_flag
+  //  ("--outer_boundary_straight_poly");
 
   // hierher check that not both are specified
+
+  
+  // Test drive damped solve
+  CommandLineArgs::specify_command_line_flag
+   ("--test_damped_solve");
+  
   
   // Parse command line
   CommandLineArgs::parse_and_assign();
@@ -1914,7 +1909,7 @@ int main(int argc, char** argv)
 
 #else
 
-  // Build problem // hierher what's the 4 for? What else can I do
+  // Build problem 
   UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
     Parameters::Element_area);
 
@@ -1940,15 +1935,24 @@ int main(int argc, char** argv)
 
   // Set pressure and incrementation for validation cases
   Parameters::P_mag = 0.0;
-  double p_inc = 0.01; // hierher 1.0e-2;
-  unsigned n_step = 100; // 3;
+  double p_inc = 1.0e-2;
+  unsigned n_step = 3;
 
+  
+  if (CommandLineArgs::command_line_flag_has_been_set("--test_damped_solve"))
+   {
+    // 0.1 and 100 steps gives nice animation
+    p_inc=1.0;
+    n_step=10;
+    Parameters::P_cos=1.0;
+   }
 
+  
   // Overwrite for "Balance on Edge" case
   if (Parameters::Problem_case == Parameters::Balance_on_edge)
    {
     p_inc = 1.0; 
-    n_step = 3; // hierher 30;
+    n_step = 3; 
    }
   
 
@@ -1958,8 +1962,7 @@ int main(int argc, char** argv)
    // Bump
    Parameters::P_mag += p_inc;
 
-   bool do_steady_newton_solve=false;
-   if (do_steady_newton_solve)
+   if (!CommandLineArgs::command_line_flag_has_been_set("--test_damped_solve"))
     {
      // Solve the system
      problem.newton_solve();
@@ -1969,14 +1972,16 @@ int main(int argc, char** argv)
      // initial value for timestep
      double dt=1.0;
      
-     // tolerance for adaptive timestepping
+     // tolerance for adaptive timestepping; somewhat random
+     // hierher Aidan: any recommendations?
      double epsilon=1.0e-3;
 
      // Damped solve
      double suggested_next_dt=
       problem.damped_solve(dt,epsilon,
                            &DocProgressOfDampedSolutions::doc_solution_during_damped_solve);
-     
+
+     // Can (but don't have to) to use this for next solve
      oomph_info << "Suggested next dt = " << suggested_next_dt << std::endl;
     }
 
