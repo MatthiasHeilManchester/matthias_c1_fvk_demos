@@ -20,8 +20,9 @@ mkdir $main_dir
 ./$executable --test_damped_solve > OUTPUT 
                             
 cd $main_dir
-oomph-convert soln*.dat; makePvd soln soln.pvd 
-oomph-convert full_soln*.dat; makePvd full_soln full_soln.pvd
+oomph-convert -z soln*.dat; makePvd soln soln.pvd 
+oomph-convert -z full_soln*.dat; makePvd full_soln full_soln.pvd
+oomph-convert -z steady_soln*dat; makePvd steady_soln steady_soln.pvd
 
 echo " "
 echo " "

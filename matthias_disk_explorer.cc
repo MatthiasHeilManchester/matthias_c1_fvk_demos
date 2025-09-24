@@ -497,7 +497,7 @@ public:
  
  
  /// Doc the solution
- void doc_solution();
+ void doc_solution(bool steady = true);
 
  
  /// Doc/check boundary coordinates
@@ -881,6 +881,47 @@ private:
   }
 
  
+ /// Global temporal error norm for pseudo-timestepping
+ double global_temporal_error_norm()
+  {
+#ifdef USE_KS
+   oomph_info << "Find w for KS; also fix if statement below" << std::endl;
+   abort(); // hierher
+#else
+   unsigned w_dof_index=2;
+#endif
+   
+   double global_error = 0.0;
+   
+   //Find out how many nodes there are in the problem
+   unsigned n_node = Bulk_mesh_pt->nnode();
+   
+   //Loop over the nodes and calculate the estimated error in the values
+   for(unsigned i=0;i<n_node;i++)
+    {
+     // Node with only in-plane displacements?
+     unsigned nval=Bulk_mesh_pt->node_pt(i)->nvalue();
+     if (nval>2)
+      {
+       // Get error in solution: Difference between predicted and actual
+       // value
+       double error = Bulk_mesh_pt->node_pt(i)->time_stepper_pt()->
+        temporal_error_in_value(Bulk_mesh_pt->node_pt(i),w_dof_index);
+       
+       //Add the square of the individual error to the global error
+       global_error += error*error;
+      }
+    }
+   
+   // Divide by the number of nodes
+   global_error /= double(n_node);
+   
+   // Return square root...
+   return sqrt(global_error);
+   
+  } // end of global_temporal_error_norm
+
+ 
   /// Pin all displacements and rotation at the centre
   void pin_all_displacements_and_rotation_at_centre_node();
 
@@ -934,7 +975,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
 {
 
  // Allocate the timestepper only used in anger for damped solve
- add_time_stepper_pt(new BDF<1>);
+ add_time_stepper_pt(new BDF<1>(true)); // hierher adaptive
 
 
  // Build the mesh
@@ -1720,11 +1761,13 @@ void UnstructuredC1PlateProblem<ELEMENT>::pin_for_balance_on_edge()
 /// Doc the solution
 //========================================================================
 template<class ELEMENT>
-void UnstructuredC1PlateProblem<ELEMENT>::doc_solution()
+void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(bool steady)
 {
  ofstream some_file,some_file2;
  char filename[100];
  
+
+ oomph_info << "Docing soln" << Doc_info.number()  << ".dat" << std::endl;
  
  sprintf(filename,"%s/soln%i.dat",Doc_info.directory().c_str(),
          Doc_info.number());
@@ -1732,6 +1775,14 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution()
  Bulk_mesh_pt->output(some_file ,Parameters::Nplot);
  some_file.close();
 
+ if (steady)
+  {
+   sprintf(filename,"%s/steady_soln%i.dat",Doc_info.directory().c_str(),
+           Doc_info.number());
+   some_file.open(filename);
+   Bulk_mesh_pt->output(some_file ,Parameters::Nplot);
+   some_file.close();
+  }
 
 
 #ifndef USE_KS
@@ -1793,8 +1844,9 @@ namespace DocProgressOfDampedSolutions
   oomph_info << "Docing solution for damped solve step "
              << i_step << std::endl;
 
-  // needs to arg; bumps up counter by itself.
-  Problem_pt->doc_solution();
+  // bumps up counter by itself.
+  bool steady=false;
+  Problem_pt->doc_solution(steady);
   
  }
 
@@ -1921,7 +1973,7 @@ int main(int argc, char** argv)
   
   // Tweak Newton solver parameters
   problem.max_residuals() = 1.0e3;
-  problem.max_newton_iterations() = 100;
+  //problem.max_newton_iterations() = 100;
 
   // Document the initial state
   problem.doc_solution();
@@ -1974,7 +2026,7 @@ int main(int argc, char** argv)
      
      // tolerance for adaptive timestepping; somewhat random
      // hierher Aidan: any recommendations?
-     double epsilon=1.0e-3;
+     double epsilon=0.01; // ten times smaller shows timestepping nicely. 1.0e-3;
 
      // Damped solve
      double suggested_next_dt=
