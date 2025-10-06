@@ -211,6 +211,39 @@ private:
 
 
 
+
+
+
+//========================================================================
+/// Dimensional parameters
+//========================================================================
+namespace DimensionalParameters
+{
+
+ /// Gravity
+ double Gravity=9.81; // metres/sec^2
+
+ /// Sheet thickness
+ double Thickness=0.8e-3; // metres
+
+ /// Sheet radius
+ double Radius=0.2; // this works: 10.0e-2; // metres
+
+ /// Density
+ double Density=900.0; // kg/m^3;
+
+ /// Young's modulus
+ double Youngs_modulus=1.44e6; // Newton/metre^2
+
+ /// Poisson's ratio
+ double Poisson_ratio=0.5;
+
+}
+
+
+
+
+
 //========================================================================
 /// Namespace for problem parameters
 //========================================================================
@@ -240,16 +273,14 @@ namespace Parameters
  
  /// Ellipse half y-axis
  double B = 1.0;
- 
- /// Poisson ratio
- double Nu = 0.5;
- 
+
  /// Damping constant for damped solves (magnitude sort of irrelevant
  /// since the adaptive timestepping will kick in anyway).
  double Mu =1.0; 
- 
- /// Nondimensional thickness of plate
- double Thickness = 0.01;
+
+
+ /// Nondimensional thickness of plate -- dependent parameter compute!
+ double Thickness = 0.0;
 
  #ifdef USE_KS
 
@@ -263,12 +294,14 @@ namespace Parameters
 
 #else
  
- /// Membrane coupling coefficient (this should really be computed
- /// as a dependent parameter...)
- double Eta = 12.0 * (1.0 - Nu * Nu) / (Thickness * Thickness);
+ /// Membrane coupling coefficient (a dependent parameter)
+ double Eta = 0.0; // hierher does it have the 1-nu^2 in it?)
+                   // 12.0 * (1.0 - Nu * Nu) / (Thickness * Thickness);
 
  #endif
 
+ /// Max non-dimensional pressure on bending scale; dependent parameter compute
+ double P_max=0.0;
 
  /// Pressure magnitude
   double P_mag = 0.0;
@@ -305,6 +338,7 @@ namespace Parameters
 	}
       }
     }
+
 
 
     // hierher Aidan: do we really need this conversion? Lagr/Eulerian. why?
@@ -353,6 +387,33 @@ namespace Parameters
  #endif
 
 
+
+ /// Compute/updated dependent non-dimensional parameters
+ void update_nondim_parameters()
+ {
+  // Non-dim thickness
+  Thickness=DimensionalParameters::Thickness/DimensionalParameters::Radius;
+  
+  // FvK parameter
+  Eta=12.0*(1.0-DimensionalParameters::Poisson_ratio*
+            DimensionalParameters::Poisson_ratio)/(Thickness*Thickness);
+  
+  // Max. pressure (corresponding to full gravity)
+  P_max=DimensionalParameters::Density*
+   DimensionalParameters::Gravity*
+   DimensionalParameters::Thickness*
+   (1.0-DimensionalParameters::Poisson_ratio*
+    DimensionalParameters::Poisson_ratio)/
+   (sqrt(12.0)*DimensionalParameters::Youngs_modulus)*
+   pow(Eta,1.5);
+  
+  oomph_info
+   << "Updated non-dim parameters. \n"
+   << "Thickness = " << Thickness << std::endl
+   << "Eta       = " << Eta << std::endl
+   << "P_max     = " << P_max << std::endl
+   << std::endl;
+ }
 
 
  ///////////////////////////////////////////////////////////////////////
@@ -975,7 +1036,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
 {
 
  // Allocate the timestepper only used in anger for damped solve
- add_time_stepper_pt(new BDF<1>(true)); // hierher adaptive
+ add_time_stepper_pt(new BDF<1>); // (true)); // hierher adaptive
 
 
  // Build the mesh
@@ -1364,7 +1425,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
     // Damping parameter for damped solve
     el_pt->mu_pt()=&Parameters::Mu;
     
-    el_pt->nu_pt() = &Parameters::Nu;
+    el_pt->nu_pt() = &DimensionalParameters::Poisson_ratio;
     el_pt->eta_pt() = &Parameters::Eta;
 
 #endif
@@ -1970,32 +2031,34 @@ int main(int argc, char** argv)
   // Pass problem pointer to namespace for docing damped solves
   DocProgressOfDampedSolutions::Problem_pt=&problem;
 
-  
+
+  // Update/set non-dim parameters
+  Parameters::update_nondim_parameters();
+   
   // Tweak Newton solver parameters
   problem.max_residuals() = 1.0e3;
-  //problem.max_newton_iterations() = 100;
 
   // Document the initial state
   problem.doc_solution();
 
-  
-  // Set the Poisson ratio
-  Parameters::Nu = 0.5;
-  
-  // Do we want to solve the linear problem?
-  // problem.make_linear();
+  // Set pressure increment
+  unsigned n_step = 100;
+  double p_inc = Parameters::P_max/double(n_step); // 1.0e-2;
 
-  // Set pressure and incrementation for validation cases
+  // Initialise actual pressure
   Parameters::P_mag = 0.0;
-  double p_inc = 1.0e-2;
-  unsigned n_step = 3;
+
+  oomph_info << "Doing nstep = " << n_step << " pressure increments of "
+             << p_inc << std::endl;
+
+  // exit(0);
 
   
   if (CommandLineArgs::command_line_flag_has_been_set("--test_damped_solve"))
    {
-    // 0.1 and 100 steps gives nice animation
-    p_inc=1.0;
-    n_step=10;
+    // // 0.1 and 100 steps gives nice animation
+    // p_inc=1.0;
+    // n_step=10;
     Parameters::P_cos=1.0;
    }
 

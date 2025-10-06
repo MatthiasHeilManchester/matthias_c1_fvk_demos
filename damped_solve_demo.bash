@@ -1,7 +1,9 @@
 #! /bin/bash
 
+prefix=matthias
+# prefix=emiliano
 
-executable=matthias_disk_explorer_fvk
+executable=$prefix"_disk_explorer_fvk"
 make $executable
 
 main_dir=RESLT
@@ -17,8 +19,12 @@ fi
 mkdir $main_dir
 
 # Do it
-./$executable --test_damped_solve > OUTPUT 
-                            
+if [ "$prefix" == "matthias" ]; then
+    ./$executable --test_damped_solve > OUTPUT 
+else
+    ./$executable --test_damped_solve --use_polyline_for_internal_boundaries > OUTPUT
+fi
+
 cd $main_dir
 oomph-convert -z soln*.dat; makePvd soln soln.pvd 
 oomph-convert -z full_soln*.dat; makePvd full_soln full_soln.pvd
