@@ -19,8 +19,15 @@ noinst_PROGRAMS = unrotated_square \
                   triangular_plate \
                   axisym_displ_based_fvk \
                   element_test \
-                  rupinder_fvk_axisymmetric
+                  rupinder_fvk_axisymmetric \
+                  curved_element_validator
 
+
+
+#----------------------------------------------------------
+curved_element_validator_SOURCES = curved_element_validator.cc 
+# Required libraries: 
+curved_element_validator_LDADD = -L@libdir@ -lc1_foeppl_von_karman -lgeneric $(EXTERNAL_LIBS) $(FLIBS)
 
 
 
