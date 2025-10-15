@@ -1921,6 +1921,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
  
  // hierher do for 3 and 5
  BernadouElementBasis<5>* b_pt=new BernadouElementBasis<5>;
+ //BernadouElementBasis<3>* b_pt=new BernadouElementBasis<3>;
  unsigned n_basic=b_pt->n_basic_basis_functions();
   
  // Tecplot header info from first element in mesh
