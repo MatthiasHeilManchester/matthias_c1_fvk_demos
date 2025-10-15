@@ -562,9 +562,10 @@ public:
 
  
 
-/// Validate mapping from monomials to 36 [66] basic dofs
+ /// Validate mapping from monomials to 36 [66] basic dofs
+ template<unsigned M>
  void validate_monomials_to_basic_basis_functions();
-
+ 
 
  
  /// Doc/check boundary coordinates
@@ -1889,39 +1890,130 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(bool steady)
 /// Validate mapping from monomials to 36 [66] basic dofs
 //========================================================================
 template<class ELEMENT>
+template<unsigned M>
 void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_functions()
 {
 
 
- // Make element
- ELEMENT* el_pt=new ELEMENT;
+ // hierher kill
+ // // Make element
+ // ELEMENT* el_pt=new ELEMENT;
 
- // Put it in its undeformed position (local coords are actually global ones)
- Vector<double> s(2);
- unsigned nnod=el_pt->nnode();
- for (unsigned j=0;j<nnod;j++)
-  {
-   el_pt->local_coordinate_of_node(j,s);
-   // oomph_info << "Node j "
-   //            << j << " "
-   //            << s[0] << " "
-   //            << s[1] << " "
-   //            << std::endl;
-   el_pt->construct_node(j);
-   el_pt->node_pt(j)->x(0)=s[0];
-   el_pt->node_pt(j)->x(1)=s[1];
-  }
- //el_pt->bernadou_element_basis_pt();
+ // // Put it in its undeformed position (local coords are actually global ones)
+ // Vector<double> s(2);
+ // unsigned nnod=el_pt->nnode();
+ // for (unsigned j=0;j<nnod;j++)
+ //  {
+ //   el_pt->local_coordinate_of_node(j,s);
+ //   // oomph_info << "Node j "
+ //   //            << j << " "
+ //   //            << s[0] << " "
+ //   //            << s[1] << " "
+ //   //            << std::endl;
+ //   el_pt->construct_node(j);
+ //   el_pt->node_pt(j)->x(0)=s[0];
+ //   el_pt->node_pt(j)->x(1)=s[1];
+ //  }
+ // //el_pt->bernadou_element_basis_pt();
+
 
  ofstream some_file;
- char filename[100]; 
+ char filename[100];
+
+ 
+ // "basis" points where interpolation property ought to be satisfied
+ std::map<std::string,Vector<Vector<double>>> test_point;
+ test_point["a"].resize(3);
+ test_point["a"][0]={1.0,0.0};
+ test_point["a"][1]={0.0,1.0};
+ test_point["a"][2]={0.0,0.0};
+ test_point["b"].resize(3);
+ test_point["b"][0]={0.0,0.5};
+ test_point["b"][1]={0.5,0.0};
+ test_point["b"][2]={0.5,0.5};
+ switch (M)
+  {
+  case 3:
+   test_point["d"].resize(6);
+   test_point["d"][0]={0.0,0.75};
+   test_point["d"][1]={0.0,0.25};
+   test_point["d"][2]={0.25,0.0};
+   test_point["d"][3]={0.75,0.0};
+   test_point["d"][4]={0.75,0.25};
+   test_point["d"][5]={0.25,0.75};
+   
+   test_point["e"].resize(3);
+   test_point["e"][0]={0.5 ,0.25};
+   test_point["e"][1]={0.25,0.5};
+   test_point["e"][2]={0.25,0.25};
+   
+   break;
+   
+  case 5:
+   test_point["d"].resize(12);
+   test_point["d"][0]={0.0,5.0/6.0};
+   test_point["d"][1]={0.0,4.0/6.0};
+   test_point["d"][2]={0.0,2.0/6.0};
+   test_point["d"][3]={0.0,1.0/6.0};
+
+   test_point["d"][4]={1.0/6.0,0.0};
+   test_point["d"][5]={2.0/6.0,0.0};
+   test_point["d"][6]={4.0/6.0,0.0};
+   test_point["d"][7]={5.0/6.0,0.0};
+  
+   test_point["d"][8 ]={5.0/6.0,1.0/6.0};
+   test_point["d"][9 ]={4.0/6.0,2.0/6.0};
+   test_point["d"][10]={2.0/6.0,4.0/6.0};
+   test_point["d"][11]={1.0/6.0,5.0/6.0};
+   
+   test_point["e"].resize(10);
+   test_point["e"][0]={1.0/6.0,4.0/6.0};
+   test_point["e"][1]={1.0/6.0,3.0/6.0};
+   test_point["e"][2]={1.0/6.0,2.0/6.0};
+   test_point["e"][3]={1.0/6.0,1.0/6.0};
+
+   test_point["e"][4]={2.0/6.0,1.0/6.0};
+   test_point["e"][5]={3.0/6.0,1.0/6.0};
+   test_point["e"][6]={4.0/6.0,1.0/6.0};
+   
+   test_point["e"][7]={3.0/6.0,2.0/6.0};
+   test_point["e"][8]={2.0/6.0,3.0/6.0};
+   
+   test_point["e"][9]={3.0/6.0,3.0/6.0};
+
+   break;
+
+  default:
+   oomph_info << "Never get here!" << std::endl;
+   abort();
+  }
+
+ 
+ // Plot' em
+ sprintf(filename,"test_points.dat");
+ some_file.open(filename);
+ for (auto point_type : test_point)
+  {
+   unsigned count=0;
+    for (auto point : point_type.second)
+    {
+     //std::cout << point_type.first << count << " : "; 
+     for (unsigned i=0;i<2;i++)
+      {
+       some_file << point[i] << " ";
+      }
+     count++;
+     some_file << std::endl;
+    }
+  }
+ some_file.close();
+
  
  sprintf(filename,"test_basic_basis.dat");
  some_file.open(filename);
  
  // hierher do for 3 and 5
- BernadouElementBasis<5>* b_pt=new BernadouElementBasis<5>;
- //BernadouElementBasis<3>* b_pt=new BernadouElementBasis<3>;
+ BernadouElementBasis<M>* b_pt=new BernadouElementBasis<M>;
  unsigned n_basic=b_pt->n_basic_basis_functions();
   
  // Tecplot header info from first element in mesh
@@ -2135,7 +2227,7 @@ int main(int argc, char** argv)
 
 #endif
 
-  problem.validate_monomials_to_basic_basis_functions();
+  problem.validate_monomials_to_basic_basis_functions<5>();
 
   exit(0);
   
