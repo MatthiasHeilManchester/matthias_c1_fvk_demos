@@ -1895,27 +1895,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
 {
 
 
- // hierher kill
- // // Make element
- // ELEMENT* el_pt=new ELEMENT;
-
- // // Put it in its undeformed position (local coords are actually global ones)
- // Vector<double> s(2);
- // unsigned nnod=el_pt->nnode();
- // for (unsigned j=0;j<nnod;j++)
- //  {
- //   el_pt->local_coordinate_of_node(j,s);
- //   // oomph_info << "Node j "
- //   //            << j << " "
- //   //            << s[0] << " "
- //   //            << s[1] << " "
- //   //            << std::endl;
- //   el_pt->construct_node(j);
- //   el_pt->node_pt(j)->x(0)=s[0];
- //   el_pt->node_pt(j)->x(1)=s[1];
- //  }
- // //el_pt->bernadou_element_basis_pt();
-
 
  // Make Bernadou element
  BernadouElementBasis<M>* b_pt=new BernadouElementBasis<M>;
@@ -1930,8 +1909,15 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
  
  
  // "basis" points where interpolation property ought to be satisfied
- std::map<std::string,Vector<std::pair<Vector<double>,
-                                       Vector<std::string>>>> test_point;
+ std::map<std::string, // type of interpolation (a,b,...)
+          Vector<      // instances of this (e.g. the three vertex points a) 
+           std::pair<  // for each instance store a pair:
+            Vector<double>,     // location
+            Vector<std::string> // types of dofs (value, deriv, ...); in general there
+                                // are multiple ones (e.g. at the vertices we 6) so
+                                // we store them in a vector
+            >>> test_point;
+ 
  test_point["a"].resize(3);
  test_point["a"][0]={{1.0,0.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
  test_point["a"][1]={{0.0,1.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
@@ -1940,7 +1926,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
  test_point["b"][0]={{0.0,0.5},{"-dwdx"}};
  test_point["b"][1]={{0.5,0.0},{"-dwdy"}};
  test_point["b"][2]={{0.5,0.5},{"dwdn"}};
-    switch (M)
+ switch (M)
   {
   case 3:
    test_point["d"].resize(6);
@@ -1998,25 +1984,24 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
    oomph_info << "Never get here!" << std::endl;
    abort();
   }
-
-    Shape psi(n_basic);
-    DShape dpsi(n_basic,2); // first derivs
-    DShape d2psi(n_basic,3); // 2nd derivs xx, xy, yy hierher check and annotate
-    
-    
+ 
+ Shape psi(n_basic);
+ DShape dpsi(n_basic,2); // first derivs
+ DShape d2psi(n_basic,3); // 2nd derivs xx, xy, yy hierher check and annotate
+ 
+ 
  
  // Plot' em
  sprintf(filename,"test_points.dat");
  some_file.open(filename);
-
+ 
  // Loop over the dofs
+ unsigned interpolation_condition_count=0;
 
+ 
  // (class of dof: a,b,d,e)
  for (auto dof_class : test_point)
   {
-
-   unsigned count=0;
-
 
    oomph_info << std::fixed << std::setprecision(1);
 
@@ -2024,29 +2009,36 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
    // Loop over location of all dof locations of this class (a1,a2,a3,...)
    // dof_class.second is a vector containing the pairs of location and
    // quantities to be interpolated/checked
-   for (auto dof_location : dof_class.second)
+   unsigned count=0;
+   for (auto dof_location_and_tests : dof_class.second)
     {
-     // 
+     // Tell us what you're doing
      oomph_info << dof_class.first << count << " : " << std::endl;
+
+     // List coordinates of test point (dof_location_and_tests.first is the vector
+     // of coordinates)
      for (unsigned i=0;i<2;i++)
       {
-       some_file << (dof_location.first)[i] << " ";
+       some_file << (dof_location_and_tests.first)[i] << " ";
       }
-     // Loop over test types:
-     for (auto test_type : dof_location.second)
+     
+     // Loop over test types: dof_location_and_tests.second
+     // is the vector whose strings tell us what quantity
+     // we're supposed to interpolate/test
+     for (auto test_type : dof_location_and_tests.second)
       {
        oomph_info << test_type << " " << std::endl;
        
        // Get all the basis functions and derivatives at this point
-       b_pt->full_basic_polynomials(dof_location.first,psi);
-       b_pt->dfull_basic_polynomials(dof_location.first,dpsi);
-       b_pt->d2full_basic_polynomials(dof_location.first,d2psi);
+       b_pt->full_basic_polynomials(dof_location_and_tests.first,psi);
+       b_pt->dfull_basic_polynomials(dof_location_and_tests.first,dpsi);
+       b_pt->d2full_basic_polynomials(dof_location_and_tests.first,d2psi);
 
        if (test_type=="w")
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(count,i)=psi[i];
+           test_matrix(interpolation_condition_count,i)=psi[i];
            oomph_info << psi[i] << " ";
           }
         }
@@ -2054,7 +2046,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(count,i)=dpsi(i,0);
+           test_matrix(interpolation_condition_count,i)=dpsi(i,0);
            oomph_info << dpsi(i,0) << " ";
           }
         }
@@ -2062,7 +2054,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(count,i)=dpsi(i,1);
+           test_matrix(interpolation_condition_count,i)=dpsi(i,1);
            oomph_info << dpsi(i,1) << " ";
           }
         }
@@ -2070,7 +2062,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(count,i)=-dpsi(i,0);
+           test_matrix(interpolation_condition_count,i)=-dpsi(i,0);
            oomph_info << -dpsi(i,0) << " ";
           }
         }
@@ -2078,7 +2070,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(count,i)=-dpsi(i,1);
+           test_matrix(interpolation_condition_count,i)=-dpsi(i,1);
            oomph_info << -dpsi(i,1) << " ";
           }
         }
@@ -2086,7 +2078,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(count,i)=1.0/sqrt(2.0)*(dpsi(i,0)+dpsi(i,1));
+           test_matrix(interpolation_condition_count,i)=1.0/sqrt(2.0)*(dpsi(i,0)+dpsi(i,1));
            oomph_info << 1.0/sqrt(2.0)*(dpsi(i,0)+dpsi(i,1))  << " ";
           }
         }
@@ -2094,7 +2086,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(count,i)=d2psi(i,0);
+           test_matrix(interpolation_condition_count,i)=d2psi(i,0);
            oomph_info << d2psi(i,0) << " ";
           }
         }
@@ -2102,7 +2094,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(count,i)=d2psi(i,1);
+           test_matrix(interpolation_condition_count,i)=d2psi(i,1);
            oomph_info << d2psi(i,1) << " ";
           }
         }
@@ -2110,7 +2102,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(count,i)=d2psi(i,2);
+           test_matrix(interpolation_condition_count,i)=d2psi(i,2);
            oomph_info << d2psi(i,2) << " ";
           }
         }
@@ -2120,19 +2112,15 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
          abort();
         }
 
+       interpolation_condition_count++;
        oomph_info << std::endl;
-       
-       // oomph_info << 
-       
-       // if (test_type=="w")
-       //  {
-       //   oomph_info << psi
-       //  }
-       
+
       }
      oomph_info << std::endl;
-     count++;
      some_file << std::endl;
+     count++;
+
+
     }
   }
  some_file.close();
@@ -2161,69 +2149,62 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
               << std::endl;
   }
 
- //test_matrix.sparse_indexed_output(std::cout);
- test_matrix.output(std::cout);
 
- sprintf(filename,"test_basic_basis.dat");
- some_file.open(filename);
-
-
- // Plot all basis functions
-
-  
- // Tecplot header info from first element in mesh
- ELEMENT* aux_el_pt=dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(0));
- unsigned nplot=100;
- some_file << aux_el_pt->tecplot_zone_string(nplot);
  
- // Loop over plot points
- Vector<double> s_plot(2);
- unsigned num_plot_points = aux_el_pt->nplot_points(nplot);
- for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
-  {
-   // Get local coordinates of plot point
-   aux_el_pt->get_s_plot(iplot, nplot, s_plot);
+ // Plot all basis functions
+ for (unsigned i=0;i<n_basic;i++)
+  { 
+   sprintf(filename,"test_basic_basis%i.dat",i);
+   some_file.open(filename);
    
-   Shape psi(n_basic);
-   b_pt->full_basic_polynomials(s_plot,psi);
-   DShape dpsi(n_basic,2); // first derivs
-   b_pt->dfull_basic_polynomials(s_plot,dpsi);
-   DShape d2psi(n_basic,3); // 2nd derivs xx, xy, yy hierher check and annotate
-   b_pt->d2full_basic_polynomials(s_plot,d2psi);
+   // Tecplot header info from first element in mesh
+   ELEMENT* aux_el_pt=dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(0));
+   unsigned nplot=100;
+   some_file << aux_el_pt->tecplot_zone_string(nplot);
    
-   some_file << s_plot[0] << " "
-             << s_plot[1] << " ";
-   for (unsigned i=0;i<n_basic;i++)
+   // Loop over plot points
+   Vector<double> s_plot(2);
+   unsigned num_plot_points = aux_el_pt->nplot_points(nplot);
+   for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
     {
+     // Get local coordinates of plot point
+     aux_el_pt->get_s_plot(iplot, nplot, s_plot);
+     
+     Shape psi(n_basic);
+     b_pt->full_basic_polynomials(s_plot,psi);
+     DShape dpsi(n_basic,2); // first derivs
+     b_pt->dfull_basic_polynomials(s_plot,dpsi);
+     DShape d2psi(n_basic,3); // 2nd derivs xx, xy, yy hierher check and annotate
+     b_pt->d2full_basic_polynomials(s_plot,d2psi);
+     
+     some_file << s_plot[0] << " "
+               << s_plot[1] << " ";
      some_file << psi[i] << " ";
-    }
-   for (unsigned i=0;i<n_basic;i++)
-    {
      some_file << dpsi(i,0) << " "
                << dpsi(i,1) << " ";
-    }
-   for (unsigned i=0;i<n_basic;i++)
-    {
      some_file << d2psi(i,0) << " "
                << d2psi(i,1) << " "
                << d2psi(i,2) << " ";
+     some_file << std::endl;
     }
-   some_file << std::endl;
-  }
- 
- // Write tecplot footer (e.g. FE connectivity lists)
- aux_el_pt->write_tecplot_zone_footer(some_file, nplot);
- some_file.close();
    
-   // Vector<Vector<double>> test_points_location(n_basic);
- exit(0);
+   // Write tecplot footer (e.g. FE connectivity lists)
+   aux_el_pt->write_tecplot_zone_footer(some_file, nplot);
+   some_file.close();
+  }
+
+ oomph_info << "\n\nTest done! Now do: " << std::endl;
+ oomph_info << "oomph-convert -z test_basic_basis*dat" << std::endl;
+ oomph_info << "makePvd test_basic_basis test_basic_basis.pvd" << std::endl;
+ oomph_info << "oomph-convert -p2 test_points.dat " << std::endl;
+ oomph_info << "paraview --state test_basic_basis.pvsm " << std::endl;
+ oomph_info << std::endl;
+
+ 
+  exit(0);
  
  
- // sprintf(filename,"%s/ref_element.dat",Doc_info.directory().c_str());
- // some_file.open(filename);
- // el_pt->output(some_file ,Parameters::Nplot);
- // some_file.close();
- 
+  
 
 }
 
@@ -2382,7 +2363,8 @@ int main(int argc, char** argv)
 
 #endif
 
-  problem.validate_monomials_to_basic_basis_functions<5>();
+  //problem.validate_monomials_to_basic_basis_functions<5>();
+  problem.validate_monomials_to_basic_basis_functions<3>();
 
   exit(0);
   
