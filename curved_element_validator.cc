@@ -1917,69 +1917,80 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
  // //el_pt->bernadou_element_basis_pt();
 
 
+ // Make Bernadou element
+ BernadouElementBasis<M>* b_pt=new BernadouElementBasis<M>;
+ unsigned n_basic=b_pt->n_basic_basis_functions();
+
+ // Test matrix
+ DenseDoubleMatrix test_matrix(n_basic);
+ 
  ofstream some_file;
  char filename[100];
 
  
+ 
  // "basis" points where interpolation property ought to be satisfied
- std::map<std::string,Vector<Vector<double>>> test_point;
+ std::map<std::string,Vector<std::pair<Vector<double>,
+                                       Vector<std::string>>>> test_point;
  test_point["a"].resize(3);
- test_point["a"][0]={1.0,0.0};
- test_point["a"][1]={0.0,1.0};
- test_point["a"][2]={0.0,0.0};
+ test_point["a"][0]={{1.0,0.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
+ test_point["a"][1]={{0.0,1.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
+ test_point["a"][2]={{0.0,0.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
  test_point["b"].resize(3);
- test_point["b"][0]={0.0,0.5};
- test_point["b"][1]={0.5,0.0};
- test_point["b"][2]={0.5,0.5};
- switch (M)
+ test_point["b"][0]={{0.0,0.5},{"-dwdx"}};
+ test_point["b"][1]={{0.5,0.0},{"-dwdy"}};
+ test_point["b"][2]={{0.5,0.5},{"dwdn"}};
+    switch (M)
   {
   case 3:
    test_point["d"].resize(6);
-   test_point["d"][0]={0.0,0.75};
-   test_point["d"][1]={0.0,0.25};
-   test_point["d"][2]={0.25,0.0};
-   test_point["d"][3]={0.75,0.0};
-   test_point["d"][4]={0.75,0.25};
-   test_point["d"][5]={0.25,0.75};
+   test_point["d"][0]={{0.0,0.75},{"w","-dwdx"}};
+   test_point["d"][1]={{0.0,0.25},{"w","-dwdx"}};
+   
+   test_point["d"][2]={{0.25,0.0},{"w","-dwdy"}};
+   test_point["d"][3]={{0.75,0.0},{"w","-dwdy"}};
+   
+   test_point["d"][4]={{0.75,0.25},{"w","dwdn"}};
+   test_point["d"][5]={{0.25,0.75},{"w","dwdn"}};
    
    test_point["e"].resize(3);
-   test_point["e"][0]={0.5 ,0.25};
-   test_point["e"][1]={0.25,0.5};
-   test_point["e"][2]={0.25,0.25};
+   test_point["e"][0]={{0.5 ,0.25},{"w"}};
+   test_point["e"][1]={{0.25,0.5 },{"w"}};
+   test_point["e"][2]={{0.25,0.25},{"w"}};
    
    break;
    
   case 5:
    test_point["d"].resize(12);
-   test_point["d"][0]={0.0,5.0/6.0};
-   test_point["d"][1]={0.0,4.0/6.0};
-   test_point["d"][2]={0.0,2.0/6.0};
-   test_point["d"][3]={0.0,1.0/6.0};
+   test_point["d"][0]={{0.0,5.0/6.0},{"w","-dwdx"}};
+   test_point["d"][1]={{0.0,4.0/6.0},{"w","-dwdx"}};
+   test_point["d"][2]={{0.0,2.0/6.0},{"w","-dwdx"}};
+   test_point["d"][3]={{0.0,1.0/6.0},{"w","-dwdx"}};
 
-   test_point["d"][4]={1.0/6.0,0.0};
-   test_point["d"][5]={2.0/6.0,0.0};
-   test_point["d"][6]={4.0/6.0,0.0};
-   test_point["d"][7]={5.0/6.0,0.0};
+   test_point["d"][4]={{1.0/6.0,0.0},{"w","-dwdy"}};
+   test_point["d"][5]={{2.0/6.0,0.0},{"w","-dwdy"}};
+   test_point["d"][6]={{4.0/6.0,0.0},{"w","-dwdy"}};
+   test_point["d"][7]={{5.0/6.0,0.0},{"w","-dwdy"}};
   
-   test_point["d"][8 ]={5.0/6.0,1.0/6.0};
-   test_point["d"][9 ]={4.0/6.0,2.0/6.0};
-   test_point["d"][10]={2.0/6.0,4.0/6.0};
-   test_point["d"][11]={1.0/6.0,5.0/6.0};
+   test_point["d"][8 ]={{5.0/6.0,1.0/6.0},{"w","dwdn"}};
+   test_point["d"][9 ]={{4.0/6.0,2.0/6.0},{"w","dwdn"}};
+   test_point["d"][10]={{2.0/6.0,4.0/6.0},{"w","dwdn"}};
+   test_point["d"][11]={{1.0/6.0,5.0/6.0},{"w","dwdn"}};
    
    test_point["e"].resize(10);
-   test_point["e"][0]={1.0/6.0,4.0/6.0};
-   test_point["e"][1]={1.0/6.0,3.0/6.0};
-   test_point["e"][2]={1.0/6.0,2.0/6.0};
-   test_point["e"][3]={1.0/6.0,1.0/6.0};
+   test_point["e"][0]={{1.0/6.0,4.0/6.0},{"w"}};
+   test_point["e"][1]={{1.0/6.0,3.0/6.0},{"w"}};
+   test_point["e"][2]={{1.0/6.0,2.0/6.0},{"w"}};
+   test_point["e"][3]={{1.0/6.0,1.0/6.0},{"w"}};
 
-   test_point["e"][4]={2.0/6.0,1.0/6.0};
-   test_point["e"][5]={3.0/6.0,1.0/6.0};
-   test_point["e"][6]={4.0/6.0,1.0/6.0};
+   test_point["e"][4]={{2.0/6.0,1.0/6.0},{"w"}};
+   test_point["e"][5]={{3.0/6.0,1.0/6.0},{"w"}};
+   test_point["e"][6]={{4.0/6.0,1.0/6.0},{"w"}};
    
-   test_point["e"][7]={3.0/6.0,2.0/6.0};
-   test_point["e"][8]={2.0/6.0,3.0/6.0};
+   test_point["e"][7]={{3.0/6.0,2.0/6.0},{"w"}};
+   test_point["e"][8]={{2.0/6.0,3.0/6.0},{"w"}};
    
-   test_point["e"][9]={3.0/6.0,3.0/6.0};
+   test_point["e"][9]={{2.0/6.0,2.0/6.0},{"w"}};
 
    break;
 
@@ -1988,33 +1999,177 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_monomials_to_basic_basis_func
    abort();
   }
 
+    Shape psi(n_basic);
+    DShape dpsi(n_basic,2); // first derivs
+    DShape d2psi(n_basic,3); // 2nd derivs xx, xy, yy hierher check and annotate
+    
+    
  
  // Plot' em
  sprintf(filename,"test_points.dat");
  some_file.open(filename);
- for (auto point_type : test_point)
+
+ // Loop over the dofs
+
+ // (class of dof: a,b,d,e)
+ for (auto dof_class : test_point)
   {
+
    unsigned count=0;
-    for (auto point : point_type.second)
+
+
+   oomph_info << std::fixed << std::setprecision(1);
+
+    
+   // Loop over location of all dof locations of this class (a1,a2,a3,...)
+   // dof_class.second is a vector containing the pairs of location and
+   // quantities to be interpolated/checked
+   for (auto dof_location : dof_class.second)
     {
-     //std::cout << point_type.first << count << " : "; 
+     // 
+     oomph_info << dof_class.first << count << " : " << std::endl;
      for (unsigned i=0;i<2;i++)
       {
-       some_file << point[i] << " ";
+       some_file << (dof_location.first)[i] << " ";
       }
+     // Loop over test types:
+     for (auto test_type : dof_location.second)
+      {
+       oomph_info << test_type << " " << std::endl;
+       
+       // Get all the basis functions and derivatives at this point
+       b_pt->full_basic_polynomials(dof_location.first,psi);
+       b_pt->dfull_basic_polynomials(dof_location.first,dpsi);
+       b_pt->d2full_basic_polynomials(dof_location.first,d2psi);
+
+       if (test_type=="w")
+        {
+         for (unsigned i=0;i<n_basic;i++)
+          {
+           test_matrix(count,i)=psi[i];
+           oomph_info << psi[i] << " ";
+          }
+        }
+       else if (test_type=="dwdx")
+        {
+         for (unsigned i=0;i<n_basic;i++)
+          {
+           test_matrix(count,i)=dpsi(i,0);
+           oomph_info << dpsi(i,0) << " ";
+          }
+        }
+       else if (test_type=="dwdy")
+        {
+         for (unsigned i=0;i<n_basic;i++)
+          {
+           test_matrix(count,i)=dpsi(i,1);
+           oomph_info << dpsi(i,1) << " ";
+          }
+        }
+       else if (test_type=="-dwdx")
+        {
+         for (unsigned i=0;i<n_basic;i++)
+          {
+           test_matrix(count,i)=-dpsi(i,0);
+           oomph_info << -dpsi(i,0) << " ";
+          }
+        }
+       else if (test_type=="-dwdy")
+        {
+         for (unsigned i=0;i<n_basic;i++)
+          {
+           test_matrix(count,i)=-dpsi(i,1);
+           oomph_info << -dpsi(i,1) << " ";
+          }
+        }
+       else if (test_type=="dwdn")
+        {
+         for (unsigned i=0;i<n_basic;i++)
+          {
+           test_matrix(count,i)=1.0/sqrt(2.0)*(dpsi(i,0)+dpsi(i,1));
+           oomph_info << 1.0/sqrt(2.0)*(dpsi(i,0)+dpsi(i,1))  << " ";
+          }
+        }
+       else if (test_type=="d2wdx2")
+        {
+         for (unsigned i=0;i<n_basic;i++)
+          {
+           test_matrix(count,i)=d2psi(i,0);
+           oomph_info << d2psi(i,0) << " ";
+          }
+        }
+       else if (test_type=="d2wdxdy")
+        {
+         for (unsigned i=0;i<n_basic;i++)
+          {
+           test_matrix(count,i)=d2psi(i,1);
+           oomph_info << d2psi(i,1) << " ";
+          }
+        }
+       else if (test_type=="d2wdy2")
+        {
+         for (unsigned i=0;i<n_basic;i++)
+          {
+           test_matrix(count,i)=d2psi(i,2);
+           oomph_info << d2psi(i,2) << " ";
+          }
+        }
+       else
+        {
+         oomph_info << "Never get here" << std::endl;
+         abort();
+        }
+
+       oomph_info << std::endl;
+       
+       // oomph_info << 
+       
+       // if (test_type=="w")
+       //  {
+       //   oomph_info << psi
+       //  }
+       
+      }
+     oomph_info << std::endl;
      count++;
      some_file << std::endl;
     }
   }
  some_file.close();
 
- 
+
+ // Test: exactly one unit entry per row
+ double tol=1.0e-3;
+ for (unsigned i=0;i<n_basic;i++)
+  {
+   unsigned count_one_in_row=0;
+   unsigned count_zero_in_row=0;
+   unsigned count_one_in_col=0;
+   unsigned count_zero_in_col=0;
+   for (unsigned j=0;j<n_basic;j++)
+    {
+     if (std::abs(test_matrix(i,j)    )<tol) count_zero_in_row++;
+     if (std::abs(test_matrix(i,j)-1.0)<tol) count_one_in_row++;
+     if (std::abs(test_matrix(j,i)    )<tol) count_zero_in_col++;
+     if (std::abs(test_matrix(j,i)-1.0)<tol) count_one_in_col++;
+    }
+   oomph_info << "row/col test: " << i << ": "
+              <<  count_one_in_row << " "
+              <<  count_zero_in_row << " "
+              <<  count_one_in_col << " "
+              <<  count_zero_in_col << " "
+              << std::endl;
+  }
+
+ //test_matrix.sparse_indexed_output(std::cout);
+ test_matrix.output(std::cout);
+
  sprintf(filename,"test_basic_basis.dat");
  some_file.open(filename);
- 
- // hierher do for 3 and 5
- BernadouElementBasis<M>* b_pt=new BernadouElementBasis<M>;
- unsigned n_basic=b_pt->n_basic_basis_functions();
+
+
+ // Plot all basis functions
+
   
  // Tecplot header info from first element in mesh
  ELEMENT* aux_el_pt=dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(0));
