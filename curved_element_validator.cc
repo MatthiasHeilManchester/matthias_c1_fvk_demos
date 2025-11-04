@@ -566,6 +566,18 @@ public:
  template<unsigned M>
  void validate_monomials_to_basic_basis_functions(const std::string&
                                                   dir_name_for_output="");
+
+ /// Validate all basis functions for curved bell
+ template<unsigned M>
+ void validate_curved_bell_and_bubble_basis_functions(const std::string&
+                                                     dir_name_for_output);
+ 
+
+ // // hierher 
+ // /// Validate interpolation of normal derivative along curved edge
+ // template<unsigned M>
+ // void validate_dpsi_dn_along_edge(const std::string&
+ //                                  dir_name_for_output="");
  
 
  
@@ -1886,6 +1898,317 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(bool steady)
 
 
 
+// // hierher
+
+// //========================================================================
+// /// Validate interpolation of normal derivative along curved edge
+// //========================================================================
+// template<class ELEMENT>
+// template<unsigned M>
+// void UnstructuredC1PlateProblem<ELEMENT>::validate_dpsi_dn_along_edge(
+//  const std::string& dir_name_for_output)
+// {
+
+//  ofstream some_file;
+//  char filename[100];
+ 
+// // Test & plot 'em
+//  bool plot_em=true;
+//  if (dir_name_for_output=="") plot_em=false;
+//  if (plot_em)
+//   {
+//    sprintf(filename,"%s/test_curved_element.dat",
+//            dir_name_for_output.c_str());
+//    some_file.open(filename);
+//   }
+ 
+//  // Find a curved element on the outer boundary
+//  // hierher (could actually do this for all of them)
+//  // unsigned nb=Bulk_mesh_pt->nboundary();
+//  // for (unsigned b=0;b<nb;b++)
+//  unsigned b=Outer_boundary0;
+//  {
+//   const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
+//   for(unsigned e=0;e<nb_element;e++)
+//    {
+//     // Get pointer to bulk element adjacent to b
+//     ELEMENT* el_pt = dynamic_cast<ELEMENT*>(
+//      Bulk_mesh_pt->boundary_element_pt(b,e));
+    
+//     // Output the lot
+//     unsigned nplot=30;
+//     el_pt->full_output(some_file,nplot);
+
+//     // Get basis functions
+//     basis_w_foeppl_von_karman(const Vector<double>& s,
+//                               Shape& psi_n,
+//                               Shape& psi_i) const
+
+// //     // All in CurvableBellElement:
+
+ 
+// //     /// Access function for the Bernadou_element_basis_pt
+// //     BernadouElementBasisBase* bernadou_element_basis_pt()
+// //     {
+// //       // [zdec] Should this throw an error if not upgraded or just return null
+// //       // pt?
+// //       return Bernadou_element_basis_pt;
+// //     }
+    
+// //  /// Get the physical coordinate
+// //     template<unsigned BOUNDARY_ORDER>
+// //     void BernadouElementBasis<BOUNDARY_ORDER>::coordinate_x(
+// //       const Vector<double>& s, Vector<double>& fk) const
+// //     {
+// //       Vector<double> s_basic(s);
+// //       permute_shape(s_basic);
+// //       f_k(s_basic, fk);
+// //     }
+
+
+    
+// //     /// Get the Bell/Bernadou basis for the unknowns
+// //     virtual void c1_basis(const Vector<double>& s,
+// //                           Shape& nodal_basis,
+// //                           Shape& bubble_basis) const
+// //     {
+// //       if (element_is_curved())
+// //       {
+// //         Bernadou_element_basis_pt->shape(s, nodal_basis, bubble_basis);
+// //       }
+
+
+// //       // hierher should really drop down into the constituent functinos!
+      
+// //   //======================================================================
+// //   /// Out-of-plane basis functions at local coordinate s
+// //   //======================================================================
+// //   template<unsigned NNODE_1D>
+// //   void FoepplVonKarmanC1CurvableBellElement<
+// //     NNODE_1D>::basis_w_foeppl_von_karman(const Vector<double>& s,
+// //                                          Shape& psi_n,
+// //                                          Shape& psi_i) const
+// //   {
+    
+// //    // hierher Aidan: Kill this commented out bit?
+// // //     throw OomphLibError("This still needs testing for curved elements.",
+// // //                         "void FoepplVonKarmanC1CurvableBellElement<NNODE_1D>::shape_and_test_foeppl_von_karman(...)",
+// // //                         OOMPH_EXCEPTION_LOCATION);
+    
+// //     this->c1_basis(s, psi_n, psi_i);
+    
+// //     // Rotate the degrees of freedom
+// //     rotate_shape(psi_n);
+// //   }
+
+
+  
+//     break; // hierher
+//    }
+//   //break; // hierher
+//  }
+
+//  if (plot_em)
+//   {
+//    some_file.close();
+//   }
+//  exit(0);
+// }
+ 
+
+
+
+//========================================================================
+/// Validate all basis functions for curved bell
+//========================================================================
+template<class ELEMENT>
+template<unsigned M>
+void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_functions(
+ const std::string& dir_name_for_output)
+{
+
+ ofstream some_file;
+ char filename[100];
+ 
+// Test & plot 'em
+ bool plot_em=true;
+ if (dir_name_for_output=="") plot_em=false;
+ 
+ // Find a curved element on the outer boundary
+ unsigned b=Outer_boundary0;
+ {
+  unsigned e=0;
+  {
+   // Get pointer to bulk element adjacent to b
+   ELEMENT* el_pt = dynamic_cast<ELEMENT*>(
+    Bulk_mesh_pt->boundary_element_pt(b,e));
+
+   if (plot_em)
+    {
+     sprintf(filename,"%s/test_curved_element.dat",
+             dir_name_for_output.c_str());
+     some_file.open(filename);
+     
+     // Output the lot
+     unsigned nplot=30;
+     el_pt->full_output(some_file,nplot);
+     
+     some_file.close();
+    }
+
+    
+   // Find the dimension of the element [zdec] will this ever not be 2?
+   const unsigned dim = el_pt->dim(); //2; // hierher should come from here 
+    
+   // The number of first derivatives is the dimension of the element
+   const unsigned n_deriv = dim;
+
+   // The number of second derivatives is the triangle number of the dimension
+   const unsigned n_2deriv = dim * (dim + 1) / 2;
+    
+   // Find out how many nodes there are for w
+   const unsigned n_w_node = el_pt->nw_node(); // 3; // hierher el_pt->nw_node();
+
+   // Get the vector of nodes used for each field
+   const Vector<unsigned> w_nodes = el_pt->get_w_node_indices(); // {0,1,2}; // hierher el_pt->get_w_node_indices();
+
+   // Find out how many basis types there are at each node
+   const unsigned n_w_nodal_type = el_pt->nw_type_at_each_node(); // 6; // hierher el_pt->nw_type_at_each_node();
+
+   // Find out how many basis types there are internally
+   unsigned n_w_internal_type =  el_pt->nw_type_internal(); // 3; // // hierher el_pt->nw_type_internal();
+   //if (M==5) n_w_internal_type=10;
+    
+   // Out-of-plane local basis & test functions
+   // ------------------------------------------
+   // Nodal basis & test functions
+   Shape psi_n_w(n_w_node, n_w_nodal_type);
+   Shape test_n_w(n_w_node, n_w_nodal_type);
+   DShape dpsi_n_wdxi(n_w_node, n_w_nodal_type, n_deriv);
+   DShape dtest_n_wdxi(n_w_node, n_w_nodal_type, n_deriv);
+   DShape d2psi_n_wdxi2(n_w_node, n_w_nodal_type, n_2deriv);
+   DShape d2test_n_wdxi2(n_w_node, n_w_nodal_type, n_2deriv);
+   // Internal basis & test functions
+   Shape psi_i_w(n_w_internal_type);
+   Shape test_i_w(n_w_internal_type);
+   DShape dpsi_i_wdxi(n_w_internal_type, n_deriv);
+   DShape dtest_i_wdxi(n_w_internal_type, n_deriv);
+   DShape d2psi_i_wdxi2(n_w_internal_type, n_2deriv);
+   DShape d2test_i_wdxi2(n_w_internal_type, n_2deriv);
+    
+    
+   // Plot all nodal basis functions
+   if (plot_em)
+    {
+     // Tecplot header info from some generic triangle element
+     TElement<2,2>* aux_el_pt= new TElement<2,2>;
+     unsigned nplot=100;
+
+     Vector<ofstream*> nodal_file_pt;
+     unsigned count=0;
+     for (unsigned j=0;j<n_w_node;j++)
+      { 
+       for (unsigned k=0;k<n_w_nodal_type;k++)
+        {
+         sprintf(filename,"%s/test_curved_bell_nodal_basis%i.dat",
+                 dir_name_for_output.c_str(),count);
+
+         nodal_file_pt.push_back(new ofstream);
+         nodal_file_pt[count]->open(filename);
+
+         // Tecplot header info
+         *(nodal_file_pt[count]) << aux_el_pt->tecplot_zone_string(nplot);
+         count++;
+        }
+      }
+     
+     // Loop over plot points
+     Vector<double> s_plot(2);
+     unsigned num_plot_points = aux_el_pt->nplot_points(nplot);
+     for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
+      {
+       // Get local coordinates of plot point
+       aux_el_pt->get_s_plot(iplot, nplot, s_plot);
+       
+       // Get plot point
+       Vector<double> interp_x(dim, 0.0);
+       el_pt->interpolated_x(s_plot, interp_x);
+       
+       // Call the derivatives of the shape and test functions for the out of
+       // plane unknown
+       double J =
+        el_pt->d2basis_and_d2test_w_eulerian_foeppl_von_karman(s_plot,
+                                                               psi_n_w,
+                                                               psi_i_w,
+                                                               dpsi_n_wdxi,
+                                                               dpsi_i_wdxi,
+                                                               d2psi_n_wdxi2,
+                                                               d2psi_i_wdxi2,
+                                                               test_n_w,
+                                                               test_i_w,
+                                                               dtest_n_wdxi,
+                                                               dtest_i_wdxi,
+                                                               d2test_n_wdxi2,
+                                                               d2test_i_wdxi2);
+
+
+       count=0;
+       for (unsigned j=0;j<n_w_node;j++)
+        { 
+         for (unsigned k=0;k<n_w_nodal_type;k++)
+          {           
+           *(nodal_file_pt[count]) << interp_x[0] << " "
+                                   << interp_x[1] << " "
+                                   << psi_n_w(j,k) << " "
+                                   << dpsi_n_wdxi(j,k,0) << " "
+                                   << dpsi_n_wdxi(j,k,1) << " "
+                                   << d2psi_n_wdxi2(j,k,0) << " "
+                                   << d2psi_n_wdxi2(j,k,1) << " "
+                                   << d2psi_n_wdxi2(j,k,2) << " "
+                                   << std::endl;
+           
+           count++;
+          }
+        }
+       
+      }
+
+     
+     // Write tecplot footer (e.g. FE connectivity lists)
+     count=0;
+     for (unsigned j=0;j<n_w_node;j++)
+      { 
+       for (unsigned k=0;k<n_w_nodal_type;k++)
+        {
+         aux_el_pt->write_tecplot_zone_footer(*(nodal_file_pt[count]), nplot);
+         nodal_file_pt[count]->close();
+         count++;
+        }
+      }
+     
+     
+     delete aux_el_pt;
+     aux_el_pt=0;
+     
+     oomph_info << "\n\nPlot of curved bell basis functions done! Now do: " << std::endl;
+     exit(0);
+     // oomph_info << "oomph-convert -z test_basic_basis*dat" << std::endl;
+     // oomph_info << "makePvd test_basic_basis test_basic_basis.pvd" << std::endl;
+     // oomph_info << "oomph-convert -p2 test_points.dat " << std::endl;
+     // oomph_info << "paraview --state test_basic_basis.pvsm " << std::endl;
+     // oomph_info << std::endl;
+     
+    }
+  }
+ }
+}
+   
+
+
+
+
+
+
 
 //========================================================================
 /// Validate mapping from monomials to 36 [66] basic dofs
@@ -2001,7 +2324,7 @@ bool plot_em=true;
 if (dir_name_for_output=="") plot_em=false;
 if (plot_em)
  {
-  sprintf(filename,"%s,test_points.dat",
+  sprintf(filename,"%s/monomial_test_points.dat",
           dir_name_for_output.c_str());
   some_file.open(filename);
  }
@@ -2422,8 +2745,14 @@ int main(int argc, char** argv)
 #endif
 
   // problem.validate_monomials_to_basic_basis_functions<5>();
-  problem.validate_monomials_to_basic_basis_functions<3>();
+  // problem.validate_monomials_to_basic_basis_functions<3>();
 
+
+  std::string dir_name="RESLT";
+  problem.validate_curved_bell_and_bubble_basis_functions<3>(dir_name);
+
+  
+   //problem.validate_dpsi_dn_along_edge<3>(".");
   exit(0);
   
   // Pass problem pointer to namespace for docing damped solves
