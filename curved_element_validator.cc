@@ -568,7 +568,6 @@ public:
                                                   dir_name_for_output="");
 
  /// Validate all basis functions for curved bell
- template<unsigned M>
  void validate_curved_bell_and_bubble_basis_functions(const std::string&
                                                      dir_name_for_output);
  
@@ -2022,7 +2021,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(bool steady)
 /// Validate all basis functions for curved bell
 //========================================================================
 template<class ELEMENT>
-template<unsigned M>
 void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_functions(
  const std::string& dir_name_for_output)
 {
@@ -2056,6 +2054,11 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
      some_file.close();
     }
 
+   // Get map to curvline boundaries of mesh
+   std::map<unsigned, C1CurviLine*> c1_curviline_boundary_pt =
+    Bulk_mesh_pt->c1_curviline_boundary_pt();
+   C1CurviLine* curviline_pt=c1_curviline_boundary_pt[b];
+   
     
    // Find the dimension of the element [zdec] will this ever not be 2?
    const unsigned dim = el_pt->dim(); //2; // hierher should come from here 
@@ -2088,6 +2091,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    DShape dtest_n_wdxi(n_w_node, n_w_nodal_type, n_deriv);
    DShape d2psi_n_wdxi2(n_w_node, n_w_nodal_type, n_2deriv);
    DShape d2test_n_wdxi2(n_w_node, n_w_nodal_type, n_2deriv);
+   
    // Internal basis & test functions
    Shape psi_i_w(n_w_internal_type);
    Shape test_i_w(n_w_internal_type);
@@ -2097,95 +2101,245 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    DShape d2test_i_wdxi2(n_w_internal_type, n_2deriv);
     
     
-   // Plot all nodal basis functions
+   // Plot all basis functions
    if (plot_em)
     {
      // Tecplot header info from some generic triangle element
      TElement<2,2>* aux_el_pt= new TElement<2,2>;
      unsigned nplot=100;
 
-     Vector<ofstream*> nodal_file_pt;
-     unsigned count=0;
-     for (unsigned j=0;j<n_w_node;j++)
-      { 
-       for (unsigned k=0;k<n_w_nodal_type;k++)
-        {
-         sprintf(filename,"%s/test_curved_bell_nodal_basis%i.dat",
-                 dir_name_for_output.c_str(),count);
-
-         nodal_file_pt.push_back(new ofstream);
-         nodal_file_pt[count]->open(filename);
-
-         // Tecplot header info
-         *(nodal_file_pt[count]) << aux_el_pt->tecplot_zone_string(nplot);
-         count++;
-        }
-      }
-     
-     // Loop over plot points
-     Vector<double> s_plot(2);
-     unsigned num_plot_points = aux_el_pt->nplot_points(nplot);
-     for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
+     /// Plot the whole thing or just the edge
+     for (unsigned do_curved_edge=0;do_curved_edge<2;do_curved_edge++)
       {
-       // Get local coordinates of plot point
-       aux_el_pt->get_s_plot(iplot, nplot, s_plot);
        
-       // Get plot point
-       Vector<double> interp_x(dim, 0.0);
-       el_pt->interpolated_x(s_plot, interp_x);
        
-       // Call the derivatives of the shape and test functions for the out of
-       // plane unknown
-       double J =
-        el_pt->d2basis_and_d2test_w_eulerian_foeppl_von_karman(s_plot,
-                                                               psi_n_w,
-                                                               psi_i_w,
-                                                               dpsi_n_wdxi,
-                                                               dpsi_i_wdxi,
-                                                               d2psi_n_wdxi2,
-                                                               d2psi_i_wdxi2,
-                                                               test_n_w,
-                                                               test_i_w,
-                                                               dtest_n_wdxi,
-                                                               dtest_i_wdxi,
-                                                               d2test_n_wdxi2,
-                                                               d2test_i_wdxi2);
-
-
-       count=0;
+       // Nodal (curved Bell) basis functions
+       Vector<ofstream*> nodal_file_pt;
+       unsigned count=0;
        for (unsigned j=0;j<n_w_node;j++)
         { 
          for (unsigned k=0;k<n_w_nodal_type;k++)
-          {           
-           *(nodal_file_pt[count]) << interp_x[0] << " "
-                                   << interp_x[1] << " "
-                                   << psi_n_w(j,k) << " "
-                                   << dpsi_n_wdxi(j,k,0) << " "
-                                   << dpsi_n_wdxi(j,k,1) << " "
-                                   << d2psi_n_wdxi2(j,k,0) << " "
-                                   << d2psi_n_wdxi2(j,k,1) << " "
-                                   << d2psi_n_wdxi2(j,k,2) << " "
-                                   << std::endl;
+          {
+           if (do_curved_edge==1)
+            {
+             sprintf(filename,"%s/test_curved_bell_curved_edge_nodal_basis%i.dat",
+                     dir_name_for_output.c_str(),count);
+            }
+           else
+            {
+             sprintf(filename,"%s/test_curved_bell_nodal_basis%i.dat",
+                     dir_name_for_output.c_str(),count);
+            }
+           nodal_file_pt.push_back(new ofstream);
+           nodal_file_pt[count]->open(filename);
            
+           // Tecplot header info
+           if (do_curved_edge==0)
+            {
+             *(nodal_file_pt[count]) << aux_el_pt->tecplot_zone_string(nplot);
+            }
            count++;
           }
         }
        
-      }
-
-     
-     // Write tecplot footer (e.g. FE connectivity lists)
-     count=0;
-     for (unsigned j=0;j<n_w_node;j++)
-      { 
-       for (unsigned k=0;k<n_w_nodal_type;k++)
+       
+       // Internal (bubble) basis
+       Vector<ofstream*> internal_file_pt;
+       count=0;
+       for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
         {
-         aux_el_pt->write_tecplot_zone_footer(*(nodal_file_pt[count]), nplot);
-         nodal_file_pt[count]->close();
+         if (do_curved_edge==1)
+          {
+           sprintf(filename,"%s/test_curved_bell_curved_edge_bubble_basis%i.dat",
+                   dir_name_for_output.c_str(),count);
+          }
+         else
+          {
+           sprintf(filename,"%s/test_curved_bell_bubble_basis%i.dat",
+                   dir_name_for_output.c_str(),count);
+          }
+         internal_file_pt.push_back(new ofstream);
+         internal_file_pt[count]->open(filename);
+         
+         // Tecplot header info
+         if (do_curved_edge==0)
+          {
+           *(internal_file_pt[count]) << aux_el_pt->tecplot_zone_string(nplot);
+          }
          count++;
         }
-      }
+    
      
+
+       // Only used for curved edge check
+       Vector<double> r_from_boundary(2,0.0);
+       Vector<double> drdzeta(2,0.0);
+       Vector<double> zeta(1);
+                             
+       // Loop over plot points
+       Vector<double> s_plot(2);
+       unsigned num_plot_points = aux_el_pt->nplot_points(nplot);
+       for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
+        {
+         // Get local coordinates of plot point
+         if (do_curved_edge==0)
+          {
+           aux_el_pt->get_s_plot(iplot, nplot, s_plot);
+          }
+         else
+          {
+           s_plot[0]=double(iplot)/double(num_plot_points-1);
+           s_plot[1]=1.0-s_plot[0];
+          
+
+           /// Position r as fct of zeta from curvilinear boundary representation
+           zeta[0]=el_pt->bernadou_element_basis_pt()->get_s_ubar()+
+            s_plot[1]*(el_pt->bernadou_element_basis_pt()->get_s_obar()-
+                       el_pt->bernadou_element_basis_pt()->get_s_ubar());
+           curviline_pt->position(zeta,r_from_boundary);
+   
+           /// Derivative of position Vector w.r.t. to zeta:
+           curviline_pt->dposition(zeta, drdzeta);
+          }
+
+         // Get plot point
+         Vector<double> interp_x(dim, 0.0);
+         el_pt->interpolated_x(s_plot, interp_x);
+
+       
+         // Call the derivatives of the shape and test functions for the out of
+         // plane unknown
+         double J =
+          el_pt->d2basis_and_d2test_w_eulerian_foeppl_von_karman(s_plot,
+                                                                 psi_n_w,
+                                                                 psi_i_w,
+                                                                 dpsi_n_wdxi,
+                                                                 dpsi_i_wdxi,
+                                                                 d2psi_n_wdxi2,
+                                                                 d2psi_i_wdxi2,
+                                                                 test_n_w,
+                                                                 test_i_w,
+                                                                 dtest_n_wdxi,
+                                                                 dtest_i_wdxi,
+                                                                 d2test_n_wdxi2,
+                                                                 d2test_i_wdxi2);
+
+
+         count=0;
+         for (unsigned j=0;j<n_w_node;j++)
+          { 
+           for (unsigned k=0;k<n_w_nodal_type;k++)
+            {
+             if (do_curved_edge==0)
+              {
+               *(nodal_file_pt[count]) << interp_x[0] << " "
+                                       << interp_x[1] << " "
+                                       << psi_n_w(j,k) << " "
+                                       << dpsi_n_wdxi(j,k,0) << " "
+                                       << dpsi_n_wdxi(j,k,1) << " "
+                                       << d2psi_n_wdxi2(j,k,0) << " "
+                                       << d2psi_n_wdxi2(j,k,1) << " "
+                                       << d2psi_n_wdxi2(j,k,2) << " "
+                                       << s_plot[0] << " "
+                                       << s_plot[1] << " " 
+                                       << std::endl;
+              }
+             else
+              {               
+               double norm=sqrt(drdzeta[0]*drdzeta[0]+
+                                drdzeta[1]*drdzeta[1]);
+               double s=s_plot[1];
+               *(nodal_file_pt[count]) << interp_x[0] << " " // 1
+                                       << interp_x[1] << " " // 2
+                                       << r_from_boundary[0] << " " // 3 
+                                       << r_from_boundary[1] << " " // 4
+                                       <<  drdzeta[1]/norm << " " // 5 
+                                       << -drdzeta[0]/norm << " " // 6
+                                       << s << " "  // 7
+                                       << dpsi_n_wdxi(j,k,0) << " " // 8
+                                       << dpsi_n_wdxi(j,k,1) << " " // 9 
+                                       << 1 - 3*s*s + 2*s*s*s << " " // 10
+                                       << s - 2*s*s + s*s*s << " " // 11
+                                       << 3*s*s - 2*s*s*s << " " // 12
+                                       << -s*s + s*s*s << " " // 13
+                                       << std::endl;
+              }
+             
+             count++;
+            }
+          }
+       
+         count=0;
+         for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
+          {
+           if (do_curved_edge==0)
+            {
+             *(internal_file_pt[count]) << interp_x[0] << " "
+                                        << interp_x[1] << " "
+                                        << psi_i_w(k_type) << " "
+                                        << dpsi_i_wdxi(k_type,0) << " "
+                                        << dpsi_i_wdxi(k_type,1) << " "
+                                        << d2psi_i_wdxi2(k_type,0) << " "
+                                        << d2psi_i_wdxi2(k_type,1) << " "
+                                        << d2psi_i_wdxi2(k_type,2) << " "
+                                        << s_plot[0] << " "
+                                        << s_plot[1] << " " 
+                                        << std::endl;
+            }
+           else
+            {
+             double norm=sqrt(drdzeta[0]*drdzeta[0]+
+                              drdzeta[1]*drdzeta[1]);
+             double s=s_plot[1];             
+              *(internal_file_pt[count]) << interp_x[0] << " " // 1
+                                         << interp_x[1] << " " // 2
+                                         << r_from_boundary[0] << " " // 3 
+                                         << r_from_boundary[1] << " " // 4
+                                         <<  drdzeta[1]/norm << " " // 5 
+                                         << -drdzeta[0]/norm << " " // 6
+                                         << s << " "  // 7
+                                         << dpsi_i_wdxi(k_type,0) << " " // 8
+                                         << dpsi_i_wdxi(k_type,1) << " " // 9 
+                                         << 1 - 3*s*s + 2*s*s*s << " " // 10
+                                         << s - 2*s*s + s*s*s << " " // 11
+                                         << 3*s*s - 2*s*s*s << " " // 12
+                                         << -s*s + s*s*s << " " // 13
+                                         << std::endl;
+            }
+  
+           count++;
+          }
+        }
+
+     
+       // Write tecplot footer (e.g. FE connectivity lists) & close
+       count=0;
+       for (unsigned j=0;j<n_w_node;j++)
+        { 
+         for (unsigned k=0;k<n_w_nodal_type;k++)
+          {
+           if (do_curved_edge==0)
+            {
+             aux_el_pt->write_tecplot_zone_footer(*(nodal_file_pt[count]), nplot);
+            }
+           nodal_file_pt[count]->close();
+           delete nodal_file_pt[count];
+           count++;
+          }
+        }
+       count=0;
+       for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
+        {       
+         if (do_curved_edge==0)
+          {
+           aux_el_pt->write_tecplot_zone_footer(*(internal_file_pt[count]), nplot);
+          }
+         internal_file_pt[count]->close();
+         delete internal_file_pt[count];
+         count++;
+        }
+     
+      }
      
      delete aux_el_pt;
      aux_el_pt=0;
@@ -2749,7 +2903,7 @@ int main(int argc, char** argv)
 
 
   std::string dir_name="RESLT";
-  problem.validate_curved_bell_and_bubble_basis_functions<3>(dir_name);
+  problem.validate_curved_bell_and_bubble_basis_functions(dir_name);
 
   
    //problem.validate_dpsi_dn_along_edge<3>(".");
