@@ -2245,7 +2245,25 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                                        << std::endl;
               }
              else
-              {               
+              {
+
+               // * grad psi \cdot n should be zero for most basis fcts
+               //   and vary cubically for the others (as in the Hermite basis, already added); so there
+               //   are four nonzero functions.
+               //
+               //   Normal derivatives should be non-zero only for basis functions 1, 4, 7, 10
+               //   ERROR: 0, 2, 5, 6, 8, 11 should be zero but aren't
+               //          
+               //
+               // * psi should be zero for most basis fcts; the others should be a quintic basis
+               //   (i.e. interpolants for value, deriv, and second deriv, i.e. six values =
+               //    fifth order).
+               //
+               //   psi should be nonzero only for basis functions 0, 2, 5, 6, 8, 11 **CORRECT!**
+               //
+               // NOTE: MAY NOT BE THE EXACT HERMITE POLYNOMIALS BECAUSE OF DIFFERENT PARAMETRISATION
+               // OF THE DEFORMED ELEMENT (WORK IN PROGRESS, REVISIT)
+               //
                double norm=sqrt(drdzeta[0]*drdzeta[0]+
                                 drdzeta[1]*drdzeta[1]);
                double s=s_plot[1];
@@ -2256,8 +2274,9 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                                        <<  drdzeta[1]/norm << " " // 5 
                                        << -drdzeta[0]/norm << " " // 6
                                        << s << " "  // 7
-                                       << dpsi_n_wdxi(j,k,0) << " " // 8
-                                       << dpsi_n_wdxi(j,k,1) << " " // 9 
+                                       << psi_n_w(j,k) << " " // 8
+                                       << (  dpsi_n_wdxi(j,k,0)*drdzeta[1]
+                                            -dpsi_n_wdxi(j,k,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
                                        << 1 - 3*s*s + 2*s*s*s << " " // 10
                                        << s - 2*s*s + s*s*s << " " // 11
                                        << 3*s*s - 2*s*s*s << " " // 12
@@ -2291,20 +2310,21 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
              double norm=sqrt(drdzeta[0]*drdzeta[0]+
                               drdzeta[1]*drdzeta[1]);
              double s=s_plot[1];             
-              *(internal_file_pt[count]) << interp_x[0] << " " // 1
-                                         << interp_x[1] << " " // 2
-                                         << r_from_boundary[0] << " " // 3 
-                                         << r_from_boundary[1] << " " // 4
-                                         <<  drdzeta[1]/norm << " " // 5 
-                                         << -drdzeta[0]/norm << " " // 6
-                                         << s << " "  // 7
-                                         << dpsi_i_wdxi(k_type,0) << " " // 8
-                                         << dpsi_i_wdxi(k_type,1) << " " // 9 
-                                         << 1 - 3*s*s + 2*s*s*s << " " // 10
-                                         << s - 2*s*s + s*s*s << " " // 11
-                                         << 3*s*s - 2*s*s*s << " " // 12
-                                         << -s*s + s*s*s << " " // 13
-                                         << std::endl;
+              *(internal_file_pt[count])  << interp_x[0] << " " // 1
+                                       << interp_x[1] << " " // 2
+                                       << r_from_boundary[0] << " " // 3 
+                                       << r_from_boundary[1] << " " // 4
+                                       <<  drdzeta[1]/norm << " " // 5 
+                                       << -drdzeta[0]/norm << " " // 6
+                                       << s << " "  // 7
+                                       << psi_i_w(k_type) << " " // 8
+                                       << (  dpsi_i_wdxi(k_type,0)*drdzeta[1]
+                                            -dpsi_i_wdxi(k_type,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
+                                       << 1 - 3*s*s + 2*s*s*s << " " // 10
+                                       << s - 2*s*s + s*s*s << " " // 11
+                                       << 3*s*s - 2*s*s*s << " " // 12
+                                       << -s*s + s*s*s << " " // 13
+                                       << std::endl;
             }
   
            count++;
@@ -2345,13 +2365,15 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
      aux_el_pt=0;
      
      oomph_info << "\n\nPlot of curved bell basis functions done! Now do: " << std::endl;
+     oomph_info << "cd RESLT"
+     oomph_info << "gnuplot -c ../validate_dpsidn_bubble.gp" << std::endl;
+     oomph_info << "gnuplot -c ../validate_dpsidn_nodal.gp" << std::endl;
+     oomph_info << "gnuplot -c ../validate_psi_nodal.gp" << std::endl;
+     oomph_info << "gnuplot -c ../validate_psi_bubble.gp" << std::endl;
+     oomph_info << "display validate*png" << std::endl;
+     oomph_info << std::endl;
      exit(0);
-     // oomph_info << "oomph-convert -z test_basic_basis*dat" << std::endl;
-     // oomph_info << "makePvd test_basic_basis test_basic_basis.pvd" << std::endl;
-     // oomph_info << "oomph-convert -p2 test_points.dat " << std::endl;
-     // oomph_info << "paraview --state test_basic_basis.pvsm " << std::endl;
-     // oomph_info << std::endl;
-     
+          
     }
   }
  }
