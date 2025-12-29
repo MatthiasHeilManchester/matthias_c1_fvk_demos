@@ -572,6 +572,9 @@ public:
                                                      dir_name_for_output);
  
 
+ /// Validate interpolated_x
+ void validate_interpolated_x(const std::string&
+                              dir_name_for_output);
  // // hierher 
  // /// Validate interpolation of normal derivative along curved edge
  // template<unsigned M>
@@ -2015,8 +2018,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(bool steady)
 // }
  
 
-
-
 //========================================================================
 /// Validate all basis functions for curved bell
 //========================================================================
@@ -2209,7 +2210,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        
          // Call the derivatives of the shape and test functions for the out of
          // plane unknown
-         double J =
+         //double J =
           el_pt->d2basis_and_d2test_w_eulerian_foeppl_von_karman(s_plot,
                                                                  psi_n_w,
                                                                  psi_i_w,
@@ -2365,7 +2366,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
      aux_el_pt=0;
      
      oomph_info << "\n\nPlot of curved bell basis functions done! Now do: " << std::endl;
-     oomph_info << "cd RESLT"
+     oomph_info << "cd RESLT";
      oomph_info << "gnuplot -c ../validate_dpsidn_bubble.gp" << std::endl;
      oomph_info << "gnuplot -c ../validate_dpsidn_nodal.gp" << std::endl;
      oomph_info << "gnuplot -c ../validate_psi_nodal.gp" << std::endl;
@@ -2378,6 +2379,150 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
   }
  }
 }
+   
+
+
+
+//========================================================================
+/// Validate interpolated_x. Should represent third or fifth order polynomials
+/// exactly.
+//========================================================================
+template<class ELEMENT>
+void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
+ const std::string& dir_name_for_output)
+{
+
+ ofstream some_file;
+ char filename[100];
+ 
+// Test & plot 'em
+ bool plot_em=true;
+ if (dir_name_for_output=="") plot_em=false;
+ if (plot_em)
+  {
+   sprintf(filename,"%s/test_interpolated_x.dat",
+           dir_name_for_output.c_str());
+   some_file.open(filename);
+  }
+
+ // Output the entire mesh
+ Bulk_mesh_pt->output("interpolated_x_mesh_plot.dat");
+
+
+ oomph_info << "\n\n\n\nTest along curved edge\n\n\n\n"
+            << std::endl;
+ 
+ // Initialise
+ double max_error=0.0;
+ 
+ // Loop over outer boundary
+ unsigned b=Outer_boundary0;
+ {
+  // loop over all of them
+  unsigned nelem=Bulk_mesh_pt->nboundary_element(b);
+  oomph_info << "nelem " << nelem << std::endl;
+  for (unsigned e=0;e<nelem;e++)
+   {
+
+    oomph_info << "\n\nelement e = " << e << std::endl << std::endl;
+    // Get pointer to bulk element adjacent to b
+    ELEMENT* el_pt = dynamic_cast<ELEMENT*>(
+     Bulk_mesh_pt->boundary_element_pt(b,e));
+    
+    // Get map to curvline boundaries of mesh
+    std::map<unsigned, C1CurviLine*> c1_curviline_boundary_pt =
+     Bulk_mesh_pt->c1_curviline_boundary_pt();
+    C1CurviLine* curviline_pt=c1_curviline_boundary_pt[b];
+    
+    // Only used for curved edge check
+    Vector<double> r_from_boundary(2,0.0);
+    Vector<double> zeta(1);
+    
+    // Which edge is the curved one?
+    unsigned curved_edge=
+     el_pt->bernadou_element_basis_pt()->curved_edge();
+    oomph_info << "Curved edge: " << curved_edge << std::endl;
+          
+    // Loop over test points
+    Vector<double> s_plot(2);
+    unsigned num_plot_points = 10;
+    for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
+     {
+
+      // Get local coordinates of plot point
+      if (curved_edge==0)
+       {
+        s_plot[0]=0.0;
+        s_plot[1]=double(iplot)/double(num_plot_points-1);
+       }
+      else if (curved_edge==1)
+       {
+        s_plot[0]=double(iplot)/double(num_plot_points-1);
+        s_plot[1]=0.0;
+       }
+      else if (curved_edge==2)
+       {
+        s_plot[0]=double(iplot)/double(num_plot_points-1);
+        s_plot[1]=1.0-s_plot[0];
+       }
+      else
+       {
+        std::cout << "hierher never get here!" << std::endl;
+        abort();
+       }
+      
+      /// Position r as fct of zeta from curvilinear boundary representation
+      zeta[0]=el_pt->bernadou_element_basis_pt()->get_s_ubar()+
+       s_plot[1]*(el_pt->bernadou_element_basis_pt()->get_s_obar()-
+                  el_pt->bernadou_element_basis_pt()->get_s_ubar());
+      curviline_pt->position(zeta,r_from_boundary);
+      
+      
+      // Get plot point
+      Vector<double> interp_x(2, 0.0);
+      el_pt->interpolated_x(s_plot, interp_x);
+      
+      // check
+      double error=sqrt(pow(r_from_boundary[0]-interp_x[0],2)+
+                        pow(r_from_boundary[1]-interp_x[1],2));
+      oomph_info << "Error: " << error << std::endl;
+      if (error>max_error) max_error=error;
+      
+      if (plot_em)
+       {
+        some_file << r_from_boundary[0] << " "
+                  << r_from_boundary[1] << " "
+                  << interp_x[0] << " "
+                  << interp_x[1] << " "
+                  << s_plot[0] << " "
+                  << s_plot[1] << " "
+                  << std::endl;
+       }
+     }
+   }
+ }
+ 
+ oomph_info << "Max. error interpolated_x(): " << max_error << std::endl;
+ 
+ 
+ if (plot_em)
+  {
+   some_file.close();
+  }
+ 
+ 
+ // oomph_info << "\n\nPlot of curved bell basis functions done! Now do: " << std::endl;
+ // oomph_info << "cd RESLT"
+ // oomph_info << "gnuplot -c ../validate_dpsidn_bubble.gp" << std::endl;
+ // oomph_info << "gnuplot -c ../validate_dpsidn_nodal.gp" << std::endl;
+ // oomph_info << "gnuplot -c ../validate_psi_nodal.gp" << std::endl;
+ // oomph_info << "gnuplot -c ../validate_psi_bubble.gp" << std::endl;
+ // oomph_info << "display validate*png" << std::endl;
+ // oomph_info << std::endl;
+ exit(0);
+ 
+}
+
    
 
 
@@ -2920,15 +3065,19 @@ int main(int argc, char** argv)
 
 #endif
 
+
+  // // Test 1: From the very bottom: Monomials are OK
   // problem.validate_monomials_to_basic_basis_functions<5>();
   // problem.validate_monomials_to_basic_basis_functions<3>();
 
 
-  std::string dir_name="RESLT";
-  problem.validate_curved_bell_and_bubble_basis_functions(dir_name);
+  // // Test 2: From the very top: curved bell basis are not OK
+  // std::string dir_name="RESLT";
+  // problem.validate_curved_bell_and_bubble_basis_functions(dir_name);
 
+  // Test 3: From the very top: interpolated_x
+  problem.validate_interpolated_x(".");
   
-   //problem.validate_dpsi_dn_along_edge<3>(".");
   exit(0);
   
   // Pass problem pointer to namespace for docing damped solves
