@@ -2450,17 +2450,17 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
      {
 
       // Get local coordinates of plot point
-      if (curved_edge==0)
+      if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::zero)
        {
         s_plot[0]=0.0;
         s_plot[1]=double(iplot)/double(num_plot_points-1);
        }
-      else if (curved_edge==1)
+      else if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::one)
        {
         s_plot[0]=double(iplot)/double(num_plot_points-1);
         s_plot[1]=0.0;
        }
-      else if (curved_edge==2)
+      else if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::two)
        {
         s_plot[0]=double(iplot)/double(num_plot_points-1);
         s_plot[1]=1.0-s_plot[0];
