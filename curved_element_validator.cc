@@ -29,6 +29,8 @@
 //LIC//====================================================================
 #include <fenv.h>
 
+#include <random>
+
 //Generic routines
 #include "generic.h"
 
@@ -46,6 +48,20 @@ using namespace std;
 using namespace oomph;
 using MathematicalConstants::Pi;
 
+
+
+
+// Random number between 0 and 1
+namespace Random
+{
+ double random_between_zero_and_one()
+ {
+  static std::mt19937 gen(12345); // note this is static so will only be executed once! 
+  static std::uniform_real_distribution<double> dist(0.0, 1.0);
+  return dist(gen);
+ }
+ 
+}
 
 
 // hierher move to geom_objects.h
@@ -200,6 +216,209 @@ private:
 
  /// Right point
  Vector<double> Right; 
+ 
+};
+
+
+
+
+/// ////////////////////////////////////////////////////////////////////
+/// ////////////////////////////////////////////////////////////////////
+// Polynomial approximation to ellipse
+/// ////////////////////////////////////////////////////////////////////
+/// ////////////////////////////////////////////////////////////////////
+
+
+ //=========================================================================
+ /// Polynomial approximation to ellipse
+ //=========================================================================
+class PolynomialApproxToEllipse : public GeomObject
+{
+public:
+ 
+ /// Constructor: Pass ellipse and start and end coordinates.
+ /// Boundary goes through the start and end points of the ellipse
+ /// and uses a polynomial representation of order  m_poly in
+ /// between. Used for test of the boundary interpolation.
+ /// For m_poly<=3 (or <=5) the boundary must be represented exactly
+ /// by curved elements with boundary polynomial order of 3 (or 5). 
+ PolynomialApproxToEllipse(Ellipse* ellipse_pt,
+                           const double& zeta_start,
+                           const double& zeta_end,
+                           const unsigned& m_poly)
+  : GeomObject(1, 2), Ellipse_pt(ellipse_pt),
+    Zeta_start(zeta_start), Zeta_end(zeta_end), M_poly_dev(m_poly-2)
+  {
+
+   Vector<double> zeta(1);
+
+   // Get left and right values
+   Left.resize(2);
+   zeta[0]=zeta_start;
+   Ellipse_pt->position(zeta,Left);
+
+   Right.resize(2);
+   zeta[0]=zeta_end;
+   Ellipse_pt->position(zeta,Right);
+   
+   // Polynomial coefficients: Fm_minus_2[p][i]
+   Fm_minus_2.resize(M_poly_dev);
+   for (unsigned p=0;p<M_poly_dev;p++)
+    {
+     Fm_minus_2[p] = {Random::random_between_zero_and_one(),
+                      Random::random_between_zero_and_one()};
+    }
+  }
+ 
+ /// Broken copy constructor
+ PolynomialApproxToEllipse(const PolynomialApproxToEllipse& dummy) = delete;
+ 
+ /// Broken assignment operator
+ void operator=(const PolynomialApproxToEllipse&) = delete;
+ 
+ /// Destructor
+ ~PolynomialApproxToEllipse(){}
+ 
+ /// Position Vector at Lagrangian coordinate zeta
+ void position(const Vector<double>& zeta, Vector<double>& r) const
+  {
+   double fract=(zeta[0]-Zeta_start)/(Zeta_end-Zeta_start);
+   for (unsigned i=0;i<2;i++)
+    {
+     r[i]=Left[i]+(Right[i]-Left[i])*fract;
+     for (unsigned p=0;p<M_poly_dev;p++)
+      {
+       r[i]+=fract*(1.0-fract)*Fm_minus_2[p][i]*pow(fract,p);
+      }
+    }
+  }
+ 
+ 
+ /// Parametrised position on object: r(zeta). Evaluated at
+ /// previous timestep. t=0: current time; t>0: previous
+ /// timestep.
+ void position(const unsigned& t,
+               const Vector<double>& zeta,
+               Vector<double>& r) const
+  {
+   position(zeta,r);
+  }
+ 
+ 
+ /// Derivative of position Vector w.r.t. to coordinates:
+ /// \f$ \frac{dR_i}{d \zeta_\alpha}\f$ = drdzeta(alpha,i).
+ /// Evaluated at current time.
+ virtual void dposition(const Vector<double>& zeta,
+                        DenseMatrix<double>& drdzeta) const
+  {
+   // hierher abort();
+   double fract=(zeta[0]-Zeta_start)/(Zeta_end-Zeta_start);
+   for (unsigned i=0;i<2;i++)
+    {
+     drdzeta(0,i)=(Right[i]-Left[i])/(Zeta_end-Zeta_start);
+     for (unsigned p=0;p<M_poly_dev;p++)
+      {
+       drdzeta(0,i)+=
+        1.0/(Zeta_end-Zeta_start)*
+        (      (1.0-fract)*Fm_minus_2[p][i]*pow(fract,p)+
+         fract*(   -1.0  )*Fm_minus_2[p][i]*pow(fract,p)
+         );
+       if (p>0)
+        {
+         drdzeta(0,i)+=
+          1.0/(Zeta_end-Zeta_start)*
+          fract*(1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1);
+        }
+      }
+    }
+  }
+ 
+ 
+ /// 2nd derivative of position Vector w.r.t. to coordinates:
+ /// \f$ \frac{d^2R_i}{d \zeta_\alpha d \zeta_\beta}\f$ =
+ /// ddrdzeta(alpha,beta,i). Evaluated at current time.
+ virtual void d2position(const Vector<double>& zeta,
+                         RankThreeTensor<double>& ddrdzeta) const
+  {
+   double fract=(zeta[0]-Zeta_start)/(Zeta_end-Zeta_start);
+   for (unsigned i=0;i<2;i++)
+    {
+     ddrdzeta(0,0,i)=0.0;
+     for (unsigned p=0;p<M_poly_dev;p++)
+      {
+       double sum=
+         (     -1.0)*Fm_minus_2[p][i]*pow(fract,p)+
+         (     -1.0)*Fm_minus_2[p][i]*pow(fract,p);
+       if (p>0)
+        {
+         sum+=
+                (1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
+          fract*(     -1.0)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
+                (1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
+          fract*(-1.0     )*Fm_minus_2[p][i]*p*pow(fract,p-1);
+         if (p>1)
+          {
+           sum+=
+            fract*(1.0-fract)*Fm_minus_2[p][i]*p*(p-1)*pow(fract,p-2);
+          }
+        }
+       ddrdzeta(0,0,i)+=sum/pow((Zeta_end-Zeta_start),2);
+      }
+    }
+  }
+ 
+ 
+ /// Posn Vector and its  1st & 2nd derivatives
+ /// w.r.t. to coordinates:
+ /// \f$ \frac{dR_i}{d \zeta_\alpha}\f$ = drdzeta(alpha,i).
+ /// \f$ \frac{d^2R_i}{d \zeta_\alpha d \zeta_\beta}\f$ =
+ /// ddrdzeta(alpha,beta,i).
+ /// Evaluated at current time.
+ virtual void d2position(const Vector<double>& zeta,
+                         Vector<double>& r,
+                         DenseMatrix<double>& drdzeta,
+                         RankThreeTensor<double>& ddrdzeta) const
+  {
+   oomph_info << "hierher broken" << std::endl;
+   abort();
+  }
+ 
+ 
+ /// How many items of Data does the shape of the object depend on?
+ unsigned ngeom_data() const
+  {
+   return 0;
+  }
+ 
+ /// Return pointer to the j-th Data item that the object's
+ /// shape depends on
+ Data* geom_data_pt(const unsigned& j)
+  {
+   return 0;
+  }
+
+private:
+
+ /// Left point 
+ Vector<double> Left;
+
+ /// Right point
+ Vector<double> Right;
+ 
+ /// Pointer to approximated ellipse
+ Ellipse* Ellipse_pt;
+
+ /// Start coordinate
+ double Zeta_start;
+ 
+ /// End coordinate
+ double Zeta_end;
+
+ /// Polynomial order for deviation from straight line
+ unsigned M_poly_dev;
+ 
+ /// Polynomial coefficients: Fm_minus_2[p][i]
+ Vector<Vector<double>> Fm_minus_2;
  
 };
 
@@ -492,7 +711,9 @@ class UnstructuredC1PlateProblem : public virtual Problem
 public:
 
   /// Constructor
-  UnstructuredC1PlateProblem(double const& element_area = 0.09);
+ UnstructuredC1PlateProblem(double const& element_area = 0.09,
+                             const unsigned& m_poly_actual_boundary=5,
+                             const unsigned& boundary_order=5);
 
   /// Destructor
   ~UnstructuredC1PlateProblem()
@@ -575,13 +796,6 @@ public:
  /// Validate interpolated_x
  void validate_interpolated_x(const std::string&
                               dir_name_for_output);
- // // hierher 
- // /// Validate interpolation of normal derivative along curved edge
- // template<unsigned M>
- // void validate_dpsi_dn_along_edge(const std::string&
- //                                  dir_name_for_output="");
- 
-
  
  /// Doc/check boundary coordinates
  void doc_boundary_coords()
@@ -1052,8 +1266,10 @@ private:
 /// Constructor definition
 //======================================================================
 template<class ELEMENT>
-UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
-                                                                element_area)
+UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
+(const double& element_area,
+ const unsigned& m_poly_actual_boundary,
+ const unsigned& boundary_order)
  : Element_area(element_area)
 {
 
@@ -1078,9 +1294,14 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
  //First bit
  double zeta_start = 0.0;
  double zeta_end = 0.5*MathematicalConstants::Pi;
+
+ // Polynomial approximation for ellipse; matching at the end points
+ PolynomialApproxToEllipse* poly_approx_pt=new PolynomialApproxToEllipse
+  (outer_boundary_ellipse_pt,zeta_start,zeta_end,m_poly_actual_boundary);
+ 
  unsigned nsegment = (unsigned)(MathematicalConstants::Pi/sqrt(Element_area));
  outer_curvilinear_boundary_pt[0] = 
-  new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
+  new TriangleMeshCurviLine(poly_approx_pt, zeta_start,
                             zeta_end, nsegment, Outer_boundary0);
  
  
@@ -1382,7 +1603,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem(const double&
    C1PlateHelper::upgrade_triangle_mesh_for_c1_plate_bending<ELEMENT>(
     Bulk_mesh_pt,
     Constraint_mesh_pt,
-    Parameters::Rotate_coordinates_on_all_curvilinear_boundaries);
+    Parameters::Rotate_coordinates_on_all_curvilinear_boundaries,
+    boundary_order);
 
    // Done
    C1PlateHelper::Duplicated_node_output_stream.close();
@@ -2407,10 +2629,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
 
  // Output the entire mesh
  Bulk_mesh_pt->output("interpolated_x_mesh_plot.dat");
-
-
- oomph_info << "\n\n\n\nTest along curved edge\n\n\n\n"
-            << std::endl;
  
  // Initialise
  double max_error=0.0;
@@ -2420,11 +2638,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
  {
   // loop over all of them
   unsigned nelem=Bulk_mesh_pt->nboundary_element(b);
-  oomph_info << "nelem " << nelem << std::endl;
   for (unsigned e=0;e<nelem;e++)
    {
-
-    oomph_info << "\n\nelement e = " << e << std::endl << std::endl;
     // Get pointer to bulk element adjacent to b
     ELEMENT* el_pt = dynamic_cast<ELEMENT*>(
      Bulk_mesh_pt->boundary_element_pt(b,e));
@@ -2441,29 +2656,32 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
     // Which edge is the curved one?
     unsigned curved_edge=
      el_pt->bernadou_element_basis_pt()->curved_edge();
-    oomph_info << "Curved edge: " << curved_edge << std::endl;
           
     // Loop over test points
     Vector<double> s_plot(2);
-    unsigned num_plot_points = 10;
+    unsigned num_plot_points = 100;
     for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
      {
 
       // Get local coordinates of plot point
+      double s_frac_along_edge=0.0;
       if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::zero)
        {
         s_plot[0]=0.0;
-        s_plot[1]=double(iplot)/double(num_plot_points-1);
+        s_plot[1]=1.0-double(iplot)/double(num_plot_points-1);
+        s_frac_along_edge=1.0-s_plot[1];
        }
       else if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::one)
        {
         s_plot[0]=double(iplot)/double(num_plot_points-1);
         s_plot[1]=0.0;
+        s_frac_along_edge=s_plot[0];
        }
       else if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::two)
        {
-        s_plot[0]=double(iplot)/double(num_plot_points-1);
+        s_plot[0]=1.0-double(iplot)/double(num_plot_points-1);
         s_plot[1]=1.0-s_plot[0];
+        s_frac_along_edge=s_plot[1];
        }
       else
        {
@@ -2473,8 +2691,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
       
       /// Position r as fct of zeta from curvilinear boundary representation
       zeta[0]=el_pt->bernadou_element_basis_pt()->get_s_ubar()+
-       s_plot[1]*(el_pt->bernadou_element_basis_pt()->get_s_obar()-
-                  el_pt->bernadou_element_basis_pt()->get_s_ubar());
+       s_frac_along_edge*(el_pt->bernadou_element_basis_pt()->get_s_obar()-
+                          el_pt->bernadou_element_basis_pt()->get_s_ubar());
       curviline_pt->position(zeta,r_from_boundary);
       
       
@@ -2485,17 +2703,16 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
       // check
       double error=sqrt(pow(r_from_boundary[0]-interp_x[0],2)+
                         pow(r_from_boundary[1]-interp_x[1],2));
-      oomph_info << "Error: " << error << std::endl;
       if (error>max_error) max_error=error;
       
       if (plot_em)
        {
-        some_file << r_from_boundary[0] << " "
-                  << r_from_boundary[1] << " "
-                  << interp_x[0] << " "
-                  << interp_x[1] << " "
-                  << s_plot[0] << " "
-                  << s_plot[1] << " "
+        unsigned prec=17;
+        some_file << std::setprecision(prec) << r_from_boundary[0] << " "
+                  << std::setprecision(prec) << r_from_boundary[1] << " "
+                  << std::setprecision(prec) << interp_x[0] << " "
+                  << std::setprecision(prec) << interp_x[1] << " "
+                  << std::setprecision(prec) << zeta[0] << " "
                   << std::endl;
        }
      }
@@ -2519,7 +2736,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
  // oomph_info << "gnuplot -c ../validate_psi_bubble.gp" << std::endl;
  // oomph_info << "display validate*png" << std::endl;
  // oomph_info << std::endl;
- exit(0);
  
 }
 
@@ -3050,6 +3266,72 @@ int main(int argc, char** argv)
   }
   
 
+  // Test 3: From the very top: interpolated_x
+  {
+
+   // Check accuracy of newton solver when determining local coordiante
+   // of point on curvilinear boundary
+   C1CurviLine::Tol_for_get_zeta=1.0e-12;
+   
+   
+   /// Test A
+   {
+    unsigned boundary_order=5;
+    unsigned m_poly_actual_boundary=5;
+
+    UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
+     Parameters::Element_area,m_poly_actual_boundary,boundary_order);
+
+    oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
+               << " ; boundary_order = " << boundary_order << " : ";
+    problem.validate_interpolated_x(".");
+   }
+
+   // Test B
+   {
+    unsigned boundary_order=3;
+    unsigned m_poly_actual_boundary=3;
+
+    UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
+     Parameters::Element_area,m_poly_actual_boundary,boundary_order);
+
+    oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
+               << " ; boundary_order = " << boundary_order << " : ";
+    problem.validate_interpolated_x(".");
+   }
+
+   
+   /// Test C
+   {
+    unsigned boundary_order=5;
+    unsigned m_poly_actual_boundary=7;
+
+    UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
+     Parameters::Element_area,m_poly_actual_boundary,boundary_order);
+
+    oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
+               << " ; boundary_order = " << boundary_order << " : ";
+    problem.validate_interpolated_x(".");
+   }
+
+   // Test D
+   {
+    unsigned boundary_order=3;
+    unsigned m_poly_actual_boundary=7;
+
+    UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
+     Parameters::Element_area,m_poly_actual_boundary,boundary_order);
+
+    oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
+               << " ; boundary_order = " << boundary_order << " : ";
+    problem.validate_interpolated_x(".");
+   }
+
+
+   
+   exit(0);
+  }
+   
 #ifdef USE_KS
   
   // Create the problem, using FvK elements derived from TElement<2,4>
