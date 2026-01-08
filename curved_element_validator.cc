@@ -50,7 +50,6 @@ using MathematicalConstants::Pi;
 
 
 
-
 // Random number between 0 and 1
 namespace Random
 {
@@ -268,6 +267,24 @@ public:
      Fm_minus_2[p] = {Random::random_between_zero_and_one(),
                       Random::random_between_zero_and_one()};
     }
+
+   // Choose polynomial so that zeros are located
+   // in relevant part of boundary coordinate
+   Zeros_in_interval=true;
+
+   // Max of polynomial 
+   double product=1.0;
+   double eval_point=0.5;
+   if ((M_poly_dev+1)%2==0)
+    {
+     eval_point=0.5-1.0/double(M_poly_dev+2);
+    }
+   for (unsigned ii=0;ii<M_poly_dev+2;ii++)
+    {
+     double fract_zero=double(ii)/double(M_poly_dev+1);
+     product*=(eval_point-fract_zero);
+    }
+   Ampl_of_deviation=1.0e-3/product; //1.0e-2/product;
   }
  
  /// Broken copy constructor
@@ -286,9 +303,22 @@ public:
    for (unsigned i=0;i<2;i++)
     {
      r[i]=Left[i]+(Right[i]-Left[i])*fract;
-     for (unsigned p=0;p<M_poly_dev;p++)
+     if (Zeros_in_interval)
       {
-       r[i]+=fract*(1.0-fract)*Fm_minus_2[p][i]*pow(fract,p);
+       double product=1.0;
+       for (unsigned ii=0;ii<M_poly_dev+2;ii++)
+        {
+         double fract_zero=double(ii)/double(M_poly_dev+1);
+         product*=(fract-fract_zero);
+        }
+       r[i]+=Ampl_of_deviation*product; 
+      }
+     else
+      {
+       for (unsigned p=0;p<M_poly_dev;p++)
+        {
+         r[i]+=fract*(1.0-fract)*Fm_minus_2[p][i]*pow(fract,p);
+        }
       }
     }
   }
@@ -311,23 +341,43 @@ public:
  virtual void dposition(const Vector<double>& zeta,
                         DenseMatrix<double>& drdzeta) const
   {
-   // hierher abort();
    double fract=(zeta[0]-Zeta_start)/(Zeta_end-Zeta_start);
    for (unsigned i=0;i<2;i++)
     {
      drdzeta(0,i)=(Right[i]-Left[i])/(Zeta_end-Zeta_start);
-     for (unsigned p=0;p<M_poly_dev;p++)
+     if (Zeros_in_interval)
       {
-       drdzeta(0,i)+=
-        1.0/(Zeta_end-Zeta_start)*
-        (      (1.0-fract)*Fm_minus_2[p][i]*pow(fract,p)+
-         fract*(   -1.0  )*Fm_minus_2[p][i]*pow(fract,p)
-         );
-       if (p>0)
+       double sum=0.0;
+       for (unsigned jj=0;jj<M_poly_dev+2;jj++)
+        {
+         double product=Ampl_of_deviation/(Zeta_end-Zeta_start);
+         for (unsigned ii=0;ii<M_poly_dev+2;ii++)
+          {
+           if (ii!=jj)
+            {
+             double fract_zero=double(ii)/double(M_poly_dev+1);
+             product*=(fract-fract_zero);
+            }
+          }
+         sum+=product;
+        }
+       drdzeta(0,i)+=sum; 
+      }
+     else
+      {
+       for (unsigned p=0;p<M_poly_dev;p++)
         {
          drdzeta(0,i)+=
           1.0/(Zeta_end-Zeta_start)*
-          fract*(1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1);
+          (      (1.0-fract)*Fm_minus_2[p][i]*pow(fract,p)+
+                 fract*(   -1.0  )*Fm_minus_2[p][i]*pow(fract,p)
+           );
+         if (p>0)
+          {
+           drdzeta(0,i)+=
+            1.0/(Zeta_end-Zeta_start)*
+            fract*(1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1);
+          }
         }
       }
     }
@@ -344,25 +394,45 @@ public:
    for (unsigned i=0;i<2;i++)
     {
      ddrdzeta(0,0,i)=0.0;
-     for (unsigned p=0;p<M_poly_dev;p++)
+     if (Zeros_in_interval)
       {
-       double sum=
-         (     -1.0)*Fm_minus_2[p][i]*pow(fract,p)+
-         (     -1.0)*Fm_minus_2[p][i]*pow(fract,p);
-       if (p>0)
+       // Clever trick from recursive definition of polynomial
+       // and its derivatives (thanks, ChatGPT)
+       double P  = 1.0;
+       double P1 = 0.0;
+       double P2 = 0.0;
+       for (unsigned ii=0;ii<M_poly_dev+2;ii++)
         {
-         sum+=
-                (1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
-          fract*(     -1.0)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
-                (1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
-          fract*(-1.0     )*Fm_minus_2[p][i]*p*pow(fract,p-1);
-         if (p>1)
+         double fract_zero=double(ii)/double(M_poly_dev+1);
+         double d = fract - fract_zero;         
+         P2 = d * P2 + 2.0 * P1;
+         P1 = d * P1 + P;
+         P  = d * P;
+        }
+       ddrdzeta(0,0,i)+=Ampl_of_deviation/pow((Zeta_end-Zeta_start),2)*P2;
+      }
+     else
+      {
+       for (unsigned p=0;p<M_poly_dev;p++)
+        {
+         double sum=
+          (     -1.0)*Fm_minus_2[p][i]*pow(fract,p)+
+          (     -1.0)*Fm_minus_2[p][i]*pow(fract,p);
+         if (p>0)
           {
            sum+=
-            fract*(1.0-fract)*Fm_minus_2[p][i]*p*(p-1)*pow(fract,p-2);
+            (1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
+            fract*(     -1.0)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
+            (1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
+            fract*(-1.0     )*Fm_minus_2[p][i]*p*pow(fract,p-1);
+           if (p>1)
+            {
+             sum+=
+              fract*(1.0-fract)*Fm_minus_2[p][i]*p*(p-1)*pow(fract,p-2);
+            }
           }
+         ddrdzeta(0,0,i)+=sum/pow((Zeta_end-Zeta_start),2);
         }
-       ddrdzeta(0,0,i)+=sum/pow((Zeta_end-Zeta_start),2);
       }
     }
   }
@@ -419,7 +489,13 @@ private:
  
  /// Polynomial coefficients: Fm_minus_2[p][i]
  Vector<Vector<double>> Fm_minus_2;
- 
+
+ /// Amplitude of deviation
+ double Ampl_of_deviation;
+
+ /// Choose polynomial so that zeros are located
+ /// in relevant part of boundary coordinate
+ bool Zeros_in_interval;
 };
 
 
@@ -795,7 +871,9 @@ public:
 
  /// Validate interpolated_x
  void validate_interpolated_x(const std::string&
-                              dir_name_for_output);
+                              dir_name_for_output,
+                              const unsigned& m_poly_actual_boundary,
+                              const unsigned& boundary_order);
  
  /// Doc/check boundary coordinates
  void doc_boundary_coords()
@@ -2611,7 +2689,9 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
 //========================================================================
 template<class ELEMENT>
 void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
- const std::string& dir_name_for_output)
+ const std::string& dir_name_for_output,
+ const unsigned& m_poly_actual_boundary,
+ const unsigned& boundary_order)
 {
 
  ofstream some_file;
@@ -2622,13 +2702,22 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
  if (dir_name_for_output=="") plot_em=false;
  if (plot_em)
   {
-   sprintf(filename,"%s/test_interpolated_x.dat",
-           dir_name_for_output.c_str());
+   sprintf(filename,"%s/test_poly_%i_bound_%i_interpolated_x.dat",
+           dir_name_for_output.c_str(),
+           m_poly_actual_boundary,
+           boundary_order);
    some_file.open(filename);
+  
+
+   // Output the entire mesh
+   sprintf(filename,"%s/interpolated_x_mesh_plot_poly_%i_bound_%i_interpolated_x.dat",
+           dir_name_for_output.c_str(),
+           m_poly_actual_boundary,
+           boundary_order);
+   std::string fname=filename;
+   Bulk_mesh_pt->output(fname);
   }
 
- // Output the entire mesh
- Bulk_mesh_pt->output("interpolated_x_mesh_plot.dat");
  
  // Initialise
  double max_error=0.0;
@@ -3272,63 +3361,27 @@ int main(int argc, char** argv)
    // Check accuracy of newton solver when determining local coordiante
    // of point on curvilinear boundary
    C1CurviLine::Tol_for_get_zeta=1.0e-12;
-   
-   
-   /// Test A
-   {
-    unsigned boundary_order=5;
-    unsigned m_poly_actual_boundary=5;
 
-    UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
-     Parameters::Element_area,m_poly_actual_boundary,boundary_order);
-
-    oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
-               << " ; boundary_order = " << boundary_order << " : ";
-    problem.validate_interpolated_x(".");
-   }
-
-   // Test B
-   {
-    unsigned boundary_order=3;
-    unsigned m_poly_actual_boundary=3;
-
-    UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
-     Parameters::Element_area,m_poly_actual_boundary,boundary_order);
-
-    oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
-               << " ; boundary_order = " << boundary_order << " : ";
-    problem.validate_interpolated_x(".");
-   }
+   // Allow massively warped elements
+   FiniteElement::Accept_negative_jacobian=true;
 
    
-   /// Test C
-   {
-    unsigned boundary_order=5;
-    unsigned m_poly_actual_boundary=7;
-
-    UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
-     Parameters::Element_area,m_poly_actual_boundary,boundary_order);
-
-    oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
-               << " ; boundary_order = " << boundary_order << " : ";
-    problem.validate_interpolated_x(".");
-   }
-
-   // Test D
-   {
-    unsigned boundary_order=3;
-    unsigned m_poly_actual_boundary=7;
-
-    UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
-     Parameters::Element_area,m_poly_actual_boundary,boundary_order);
-
-    oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
-               << " ; boundary_order = " << boundary_order << " : ";
-    problem.validate_interpolated_x(".");
-   }
-
-
-   
+   for (unsigned boundary_order=3;boundary_order<=5;boundary_order+=2)
+    {
+     for (unsigned m_poly_actual_boundary=2;
+          m_poly_actual_boundary<=boundary_order+5;
+          m_poly_actual_boundary++)
+      {
+       UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
+        Parameters::Element_area,m_poly_actual_boundary,boundary_order);
+       
+       oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
+                  << " ; boundary_order = " << boundary_order << " : ";
+       problem.validate_interpolated_x(".",m_poly_actual_boundary, boundary_order);
+      }
+    }
+       
+       
    exit(0);
   }
    
@@ -3357,8 +3410,6 @@ int main(int argc, char** argv)
   // std::string dir_name="RESLT";
   // problem.validate_curved_bell_and_bubble_basis_functions(dir_name);
 
-  // Test 3: From the very top: interpolated_x
-  problem.validate_interpolated_x(".");
   
   exit(0);
   
