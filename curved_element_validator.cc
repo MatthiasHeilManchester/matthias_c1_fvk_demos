@@ -547,22 +547,10 @@ namespace Parameters
 
  /// Number of plot points
  unsigned Nplot=5;
- 
- /// Enumeration of cases
- enum
- {
-  Clamped_validation,
-  Pinned_validation,
-  Balance_on_edge,
-  Free_edges
- };
 
  /// Rotate coordinates on curvilinear boundaries?
  bool Rotate_coordinates_on_all_curvilinear_boundaries=true;
 
- /// Which case are we doing
- unsigned Problem_case = Free_edges;
- 
  /// Ellipse half x-axis
  double A = 1.0;
  
@@ -793,10 +781,7 @@ public:
 
   /// Destructor
   ~UnstructuredC1PlateProblem()
-  {
-    // Close trace file
-    Trace_file.close();
-  };
+  {}
 
  /// Overloaded version of the problem's access function to
  /// the mesh. 
@@ -810,54 +795,9 @@ public:
 
   /// Update the problem specs before solve: empty
   void actions_before_newton_solve(){}
-
- #ifndef USE_KS
-
- // hierher check dofs for KS; it this type of pinning still correct?
- // and how do we make the equations linear?
- 
- /// Make the problem linear (biharmonic) by pinning all in-plane dofs and
- /// setting eta=0; also readjusts the constraints and and reassigns
- /// the equation numbers
- void make_linear()
-  {
-   // Remove stretching coupling
-   Parameters::Eta = 0.0;
-   
-   // Pin all in-plane displacements
-   unsigned n_node = Bulk_mesh_pt->nnode();
-   for(unsigned i_node = 0; i_node < n_node; i_node++)
-    {
-     Bulk_mesh_pt->node_pt(i_node)->pin(0);
-     Bulk_mesh_pt->node_pt(i_node)->set_value(0,0.0);
-     Bulk_mesh_pt->node_pt(i_node)->pin(1);
-     Bulk_mesh_pt->node_pt(i_node)->set_value(1,0.0);
-    }
-   
-   
-   // Update the corner constraints based on boundary conditions
-   // after changing the boundary conditions
-   unsigned n_el = Constraint_mesh_pt->nelement();
-   for(unsigned i_el = 0; i_el < n_el; i_el++)
-    {
-     dynamic_cast<DuplicateNodeConstraintElement*>
-      (Constraint_mesh_pt->element_pt(i_el))
-      ->pin_redundant_constraints();
-    }
-   
-   // Reassign the equation numbers
-   oomph_info << "Reassiging equation numbers after changing BCs. "
-              << " ndof = " << assign_eqn_numbers() << std::endl;
-   
-  } // End make_linear
- 
-#endif
- 
  
  /// Doc the solution
  void doc_solution(bool steady = true);
-
- 
 
  /// Validate mapping from monomials to 36 [66] basic dofs
  template<unsigned M>
@@ -866,7 +806,11 @@ public:
 
  /// Validate all basis functions for curved bell
  void validate_curved_bell_and_bubble_basis_functions(const std::string&
-                                                     dir_name_for_output);
+                                                      dir_name_for_output);
+ 
+ /// Plot all basis functions for curved bell
+ void plot_curved_bell_and_bubble_basis_functions(const std::string&
+                                                  dir_name_for_output);
  
 
  /// Validate interpolated_x
@@ -959,222 +903,6 @@ public:
   }
 
 
-
- /// Typedef for the function pointer to the function that allows
- /// documtating the progress of the damped solve
- typedef void (*DampedSolveDocSolutionFctPt)(const unsigned&);
-
- 
-// hierher move into base class
-/// Use damped solves to get close to a steady solution; when close
-/// enough, attempt a steady solve. If that fails, be stricter about the
-/// meaning of "close enough" and repeat until a steady solve succeeds.
-///
-/// Expects:
-///   dt_supplied_guess: a guess for a good timestep size
-///   epsilon:           an 'error tolerance' for the timestepper to limit
-///                        the size of a damped step
-///  doc_soln_fct_pt:    function pointer to void function that takes
-///                      unsigned (representing the number of the current
-///                      damped solve) as arg, This function usually calls
-///                      the doc_solution(...) fct of the underlying problem
-///                      class. Defaults to null, in which case no doc is
-///                      produced.
-/// Returns:
-///   a double suggesting the timestep dt for the next solve
-double damped_solve(
- const double& dt_supplied_guess, 
- const double& epsilon, 
- DampedSolveDocSolutionFctPt doc_soln_fct_pt=0)
-  {
-   // We are unsteady until a steady solve succeeds
-   bool dofs_are_steady = false;
-
-   // This used to be an input parameter but generally it's too wobbly
-   // so let's set it to false here; can re-enable if it's ever found to be
-   // useful
-   bool begin_with_steady_solve=false;
-   
-   // Max residual of the steady problem before we attempt a steady solve
-   double sufficiently_small = 1.0e-2;
-   
-   // Timestep size
-   double dt = dt_supplied_guess;
-   
-  // Try steady indicates when we should attempt a steady solve
-  bool try_steady = begin_with_steady_solve;
-  
-  // Value to be returned for initial guess for next damped_solve dt
-  double suggested_dt_for_next_damped_solve = dt;
-  
-  // Only set dt_initial_guess once, after the first successful solve
-  bool suggested_dt_for_next_damped_solve_is_unset = true;
-
-  // Counter for unsteady solves
-  unsigned unsteady_solve_counter=0;
-  
-  // If we are documenting the damped stage, create an initial state before any
-  // unsteady solves have been done.
-  if (doc_soln_fct_pt!=0)
-   {
-    doc_soln_fct_pt(unsteady_solve_counter);
-    unsteady_solve_counter++;
-   }
-  
-  
-  // Keep looping until all the dofs are steady
-  while (!dofs_are_steady)
-   {
-    //------------------------------------------------------------------------
-    // If we are supposed to try a steady solve, do it
-    if (try_steady)
-     {
-      oomph_info << "ATTEMPT A STEADY SOLVE" << std::endl;
-      
-      // Store the dofs before a steady solve so that they can be put back in
-      // case it fails
-      store_current_dof_values();
-
-      // Get the max residual in case we need it to adjust sufficiently_small
-      DoubleVector res;
-      get_residuals(res);
-      double max_steady_residual = res.max();
-      try
-       {
-        // <<< Solve >>>
-        steady_newton_solve();
-        
-        // If that worked, we have achieved steady state.
-        // Celebrate and take note
-        oomph_info << "\nHOORAY\n"
-                   << "Steady solve was successful, damped solve complete\n"
-                   << std::endl;
-        dofs_are_steady = true;
-        
-        // If we are documenting the unsteady states, add the final solution to
-        // the unsteady solution outputs
-        if (doc_soln_fct_pt!=0)
-         {
-          doc_soln_fct_pt(unsteady_solve_counter);
-          unsteady_solve_counter++;
-         }
-       }
-      // If the steady solve fails, we need to tidy up before carrying on
-      catch (OomphLibError& error)
-       {
-        // If our tolerance to attempt a steady solve is smaller than the
-        // tolerance, then this implies that the initial residual was within
-        // tolerance and we still got an error! Odd.
-        if (sufficiently_small < newton_solver_tolerance())
-         {
-          oomph_info << "\nUH OH\n"
-                     << "\"sufficiently small\" is now " << sufficiently_small
-                     << " which is smaller than the Newton solver tolerance.\n"
-                     << "For some reason we still gt an error in the"
-                     << " steady Newton solve. \n"
-                     << "Giving up on damped solves..." << std::endl;
-          throw error;
-         } // End of if tolerance is to small
-        else
-         {
-          oomph_info << "\nNOT STEADY ENOUGH.\n"
-                     << "\"sufficiently_small\" is insufficiently small \n"
-                     << "i.e. we've stopped the unsteady solves too early\n"
-                     << "Decreasing it from " << sufficiently_small
-                     << " to " << max_steady_residual / 2.0 << ".\n"
-                     << "Continuing with damped solves...\n"
-                     << std::endl;
-          
-          // Decrease the threshold for attempting steady solves as this one
-          // didn't work
-          sufficiently_small = max_steady_residual / 2.0;
-          
-          // Go back to the state we were in before attempting the steady solve
-          restore_dof_values();
-          for (unsigned i = 0; i < ntime_stepper(); i++)
-           {
-            time_stepper_pt(i)->undo_make_steady();
-           }
-          
-          // Stop trying steady solves
-          try_steady = false;
-          
-          // Keep calm and carry on // hierher Aidan: what is this?
-          error.disable_error_message();
-          
-         } // End of else tolerance is not too small
-       } // End of catch error
-     } // End of if try_steady
-    
-    //------------------------------------------------------------------------
-    // Try get us close to a steady solution by solving the damped version of
-    // the equations. When it is time to try a steady solve, break this loop.
-    while(!try_steady)
-     {
-      //----------------------------------------------------------------------
-      // Begin by doing a damped solve
-      oomph_info << "NEW DAMPED PSEUDO-TIME STEP WITH: dt = "
-                 << dt << std::endl;
-      double dt_next = adaptive_unsteady_newton_solve(dt, epsilon);
-      dt = dt_next;
-      
-      // If we haven't set the initial guess for the next damped solve dt, then
-      // set it now. It should be the recommended timestep after the first
-      // successful solve. Assuming the following damped solve will start in a
-      // roughly similar state to this one, this is appropriate.
-      if (suggested_dt_for_next_damped_solve_is_unset)
-       {
-        suggested_dt_for_next_damped_solve = dt_next;
-        suggested_dt_for_next_damped_solve_is_unset = false;
-       }
-      
-      // If we are documenting the unsteady solutions then do so, else just
-      // just increase the unsteady step counter to keep count of damped steps
-      if (doc_soln_fct_pt!=0)
-       {
-        doc_soln_fct_pt(unsteady_solve_counter);
-        unsteady_solve_counter++;
-       }
-      
-      //------------------------------------------------------------------------
-      // Check how close we are to a steady solution by getting the steady
-      // max residual, if it is sufficiently small, try a steady solve.
-      // If that doesn't work, restrict what it means to be "sufficiently small"
-      // and return to unsteady. We repeat this until the steady solve works,
-      // or, we give up.
-      
-      // First set the timesteppers to steady
-      for (unsigned i = 0; i < ntime_stepper(); i++)
-       {
-        time_stepper_pt(i)->make_steady();
-       }
-      
-      // Then get the residual
-      DoubleVector res;
-      get_residuals(res);
-      double max_steady_residual = res.max();
-      oomph_info << std::endl
-                 << "The max steady residual is " << max_steady_residual
-                 << std::endl;
-      
-      // If it is "sufficiently small" then try a steady solve
-      try_steady = max_steady_residual < sufficiently_small;
-      
-      // Reset time steppers
-      for (unsigned i = 0; i < ntime_stepper(); i++)
-       {
-        time_stepper_pt(i)->undo_make_steady();
-       }
-     } // End of while(!try_steady)
-   } // End of while(!steady)
-  
-  
-  // Done; return most recent suggestion for timestep
-  return suggested_dt_for_next_damped_solve;
-  
-  }
- 
- 
  
  
 private:
@@ -1255,58 +983,6 @@ private:
     }
   }
 
- 
- /// Global temporal error norm for pseudo-timestepping
- double global_temporal_error_norm()
-  {
-#ifdef USE_KS
-   oomph_info << "Find w for KS; also fix if statement below" << std::endl;
-   abort(); // hierher
-#else
-   unsigned w_dof_index=2;
-#endif
-   
-   double global_error = 0.0;
-   
-   //Find out how many nodes there are in the problem
-   unsigned n_node = Bulk_mesh_pt->nnode();
-   
-   //Loop over the nodes and calculate the estimated error in the values
-   for(unsigned i=0;i<n_node;i++)
-    {
-     // Node with only in-plane displacements?
-     unsigned nval=Bulk_mesh_pt->node_pt(i)->nvalue();
-     if (nval>2)
-      {
-       // Get error in solution: Difference between predicted and actual
-       // value
-       double error = Bulk_mesh_pt->node_pt(i)->time_stepper_pt()->
-        temporal_error_in_value(Bulk_mesh_pt->node_pt(i),w_dof_index);
-       
-       //Add the square of the individual error to the global error
-       global_error += error*error;
-      }
-    }
-   
-   // Divide by the number of nodes
-   global_error /= double(n_node);
-   
-   // Return square root...
-   return sqrt(global_error);
-   
-  } // end of global_temporal_error_norm
-
- 
-  /// Pin all displacements and rotation at the centre
-  void pin_all_displacements_and_rotation_at_centre_node();
-
-  /// Balance on edge along line
-  void pin_for_balance_on_edge();
- 
-    
-  /// Trace file to document norm of solution
-  ofstream Trace_file;
-
   /// Pointer to "bulk" mesh
   TriangleMesh<ELEMENT>* Bulk_mesh_pt;
 
@@ -1317,10 +993,7 @@ private:
     Outer_boundary0 = 0,
     Outer_boundary1 = 1,
     Outer_boundary2 = 2,
-    Outer_boundary3 = 3,
-    Inner_boundary0 = 4,
-    Inner_boundary1 = 5,
-    Inner_boundary2 = 6
+    Outer_boundary3 = 3
   };
 
   /// Target element area
@@ -1331,10 +1004,6 @@ private:
 
   /// Doc info object for labeling output
   DocInfo Doc_info;
-
- // The Line Visualiser.
- LineVisualiser* LV_pt;
-
 
 }; // end_of_problem_class
 
@@ -1351,14 +1020,10 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
  : Element_area(element_area)
 {
 
- // Allocate the timestepper only used in anger for damped solve
- add_time_stepper_pt(new BDF<1>); // (true)); // hierher adaptive
-
 
  // Build the mesh
  //================
- 
- 
+  
  //Outer boundary
  //--------------
  
@@ -1397,28 +1062,12 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
  TwoDStraightLineFromTwoPoints* straight_line_pt =
   new TwoDStraightLineFromTwoPoints(left,right);
  
- bool flatten_one_side=false; 
- if (Parameters::Problem_case==Parameters::Balance_on_edge)
-  {
-   flatten_one_side=false;
-  }
- if (flatten_one_side)
-  {
-   zeta_start = 0.0;
-   zeta_end = 1.0;
-   outer_curvilinear_boundary_pt[1] =
-    new TriangleMeshCurviLine(straight_line_pt, zeta_start,
-                              zeta_end, nsegment, Outer_boundary1);
-  }
- else
-  {
-   zeta_start = 0.5*MathematicalConstants::Pi;
-   zeta_end = MathematicalConstants::Pi;
-   outer_curvilinear_boundary_pt[1] =
-    new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
-                              zeta_end, nsegment, Outer_boundary1);
-  }
-
+ zeta_start = 0.5*MathematicalConstants::Pi;
+ zeta_end = MathematicalConstants::Pi;
+ outer_curvilinear_boundary_pt[1] =
+  new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
+                            zeta_end, nsegment, Outer_boundary1);
+  
    
    //Third bit
  zeta_start = zeta_start_next_curved;
@@ -1436,185 +1085,21 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
                             zeta_end, nsegment, Outer_boundary3);
  
  // Combine
-  TriangleMeshClosedCurve* outer_boundary_pt =
+ TriangleMeshClosedCurve* outer_boundary_pt =
   new TriangleMeshClosedCurve(outer_curvilinear_boundary_pt);
-
-  
-  // Internal open boundaries
-  //-------------------------
-  
-  // Represent inner boundaries by curvilines?
-  bool use_curviline=true;
-  if (CommandLineArgs::command_line_flag_has_been_set
-      ("--use_polyline_for_internal_boundaries"))
-   {
-    use_curviline=false;
-   }
-
-  
-  // We want internal open curves
-  Vector<TriangleMeshOpenCurve *> inner_open_boundaries_pt;
-  
-  // Internal bit 
-  
-  // Open curve 1
-  Vector<Vector<double> > vertices(3,Vector<double>(2,0.0));
-  vertices[0][0] =-0.5*Parameters::A;
-  vertices[0][1] = 0.0;
-  
-  vertices[1][0] = 0.0;
-  vertices[1][1] = 0.0;
-  
-  vertices[2][0] = 0.5*Parameters::A;
-  vertices[2][1] = 0.0;
-  unsigned boundary_id = Inner_boundary0;
-  
-  TriangleMeshCurveSection* boundary2_pt=0;
-  if (use_curviline)
-   {
-    // Straight curvilinear line
-    TwoDStraightLineFromTwoPoints* straight_line_pt =
-     new TwoDStraightLineFromTwoPoints(vertices[0],vertices[2]);
-    
-    double zeta_start=0.0;
-    double zeta_end=1.0;
-    
-    // Two segments to mimick the three-vertex polyline version
-    unsigned nsegment=2;
-    boundary2_pt =
-     new TriangleMeshCurviLine(straight_line_pt, zeta_start,
-                               zeta_end, nsegment, boundary_id);
-    
-   }
-  else
-   {
-    boundary2_pt =
-     new TriangleMeshPolyLine(vertices, boundary_id);
-   }
-  
-  // Each internal open curve is defined by a vector of
-  // TriangleMeshCurveSections
-  Vector<TriangleMeshCurveSection *> internal_curve_section1_pt(1);
-  internal_curve_section1_pt[0] = boundary2_pt;
-  
-  // The open curve that defines this boundary
-  inner_open_boundaries_pt.push_back(
-   new TriangleMeshOpenCurve(internal_curve_section1_pt));
-  
-  
-  // Make a T-shape in the middle of the domain (to force splitting
-  // of elements)
-  bool make_t_shape=false;
-  if (CommandLineArgs::command_line_flag_has_been_set
-      ("--use_t_shape_internal_boundaries"))
-   {
-    make_t_shape=true;
-   }
-  if (make_t_shape)
-   {
-    
-    // Open Curve 2
-    Vector<Vector<double> > vertices(2,Vector<double>(2,0.0));
-    vertices[0][0] = 0.0;
-    vertices[0][1] =-0.5;
-    
-    vertices[1][0] = 0.0;
-    vertices[1][1] = 0.0;
-    boundary_id = Inner_boundary1;
-
-    TriangleMeshCurveSection* boundary3_pt=0;
-    if (use_curviline)
-     {
-      // Straight curvilinear line
-      TwoDStraightLineFromTwoPoints* straight_line_pt =
-       new TwoDStraightLineFromTwoPoints(vertices[0],vertices[1]);
-       
-      double zeta_start=0.0;
-      double zeta_end=1.0;
-
-      // Just one segment to mimick the two-vertex polyline version
-      unsigned nsegment=1;
-      boundary3_pt =
-       new TriangleMeshCurviLine(straight_line_pt, zeta_start,
-                                 zeta_end, nsegment, boundary_id);
-            
-      // Connect final vertex on this boundary
-      // to middle of the horizontal one:
-      double zeta_to_connect_to=0.5;
-      boundary3_pt->connect_final_vertex_to_curviline(
-       dynamic_cast<TriangleMeshCurviLine*>(boundary2_pt),
-       zeta_to_connect_to);
-     }
-    else
-     {
-      boundary3_pt =
-       new TriangleMeshPolyLine(vertices, boundary_id);
-      
-      // Connect final vertex on this boundary
-      // to middle vertex in the horizontal one:
-      unsigned vertex_to_connect_to=1;
-      boundary3_pt->connect_final_vertex_to_polyline(
-       dynamic_cast<TriangleMeshPolyLine*>(boundary2_pt),
-       vertex_to_connect_to);
-     }
-
-    // Each internal open curve is defined by a vector of
-    // TriangleMeshCurveSections
-    Vector<TriangleMeshCurveSection*> internal_curve_section2_pt(1);
-    internal_curve_section2_pt[0] = boundary3_pt;
-    
-    // The open curve that defines this boundary
-    inner_open_boundaries_pt.push_back(
-     new TriangleMeshOpenCurve(internal_curve_section2_pt));
-
-
-    // hierher this creates a node that is on three boundaries and (currently overwhelms our lovely
-    // little (and limited-scope) black box helper function:
-    
-    // // Open Curve 3
-    // vertices[0][0] = 0.0;
-    // vertices[0][1] = 0.5;
-    
-    // vertices[1][0] = 0.0;
-    // vertices[1][1] = 0.0;
-    // boundary_id = Inner_boundary2;
-    
-    // TriangleMeshPolyLine* boundary4_pt =
-    //  new TriangleMeshPolyLine(vertices, boundary_id);
-     
-    // // Connect final vertex on this boundary
-    // // to middle vertex in the horizontal one:
-    // unsigned vertex_to_connect_to=1;
-    // boundary4_pt->connect_final_vertex_to_polyline(
-    //  boundary2_pt,
-    //  vertex_to_connect_to);
-  
-    // // Each internal open curve is defined by a vector of
-    // // TriangleMeshCurveSections
-    // Vector<TriangleMeshCurveSection *> internal_curve_section3_pt(1);
-    // internal_curve_section3_pt[0] = boundary4_pt;
-    
-    // // The open curve that defines this boundary
-    // inner_open_boundaries_pt.push_back(
-    //  new TriangleMeshOpenCurve(internal_curve_section3_pt));
-     
-   }
-
-
-  
-  //Create mesh parameters object
-  TriangleMeshParameters mesh_parameters(outer_boundary_pt);
-
+ 
+ 
+ 
+ 
+ //Create mesh parameters object
+ TriangleMeshParameters mesh_parameters(outer_boundary_pt);
+ 
   // Element area
-  mesh_parameters.element_area() = Element_area;
-
-  // Specify the internal open boundaries
-  mesh_parameters.internal_open_curves_pt() = inner_open_boundaries_pt;
-
-  // Build an assign bulk mesh
-  Bulk_mesh_pt=new TriangleMesh<ELEMENT>(mesh_parameters,
-                                         time_stepper_pt());
-
+ mesh_parameters.element_area() = Element_area;
+ 
+ // Build an assign bulk mesh
+ Bulk_mesh_pt=new TriangleMesh<ELEMENT>(mesh_parameters);
+ 
 
   
   // Now upgrade to (potentially) curved C1 boundaries 
@@ -1675,8 +1160,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
     ("rotated_nodes.dat");
    C1PlateHelper::Rotated_element_output_stream.open
     ("rotated_elements.dat");
- 
-   
+    
    // Rotate coordinates on curvilinear boundaries?
    C1PlateHelper::upgrade_triangle_mesh_for_c1_plate_bending<ELEMENT>(
     Bulk_mesh_pt,
@@ -1697,10 +1181,6 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
    std::string name_prefix="test_";
    doc_boundary_elements_and_faces(Bulk_mesh_pt,name_prefix);
 
-
-
-   
-  
   }
 
   // Build global mesh
@@ -1714,132 +1194,6 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
   build_global_mesh();
 
 
- 
-  // Complete the build of all elements so they are fully functional
-  //================================================================
-  unsigned n_element = Bulk_mesh_pt->nelement();
-  for(unsigned e=0;e<n_element;e++)
-  {
-    // Upcast from GeneralisedElement to the present element
-    ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(e));
-
-    //Set the traction and physical constants
-#ifdef USE_KS
-    
-    // hierher: rename pressure --> traction in src
-    el_pt->pressure_fct_pt() = &Parameters::get_traction;
-
-    el_pt->mu_pt()=&Parameters::Mu;
-
-    // hierher why do we need thickness and (two!) etas?
-    el_pt->thickness_pt() = &Parameters::Thickness;
-    el_pt->nu_pt() = &Parameters::Nu;
-    el_pt->eta_u_pt() = &Parameters::Eta_u;
-    el_pt->eta_sigma_pt() = &Parameters::Eta_sigma;
-
-    // Damping parameter for damped solve
-    el_pt->mu_pt() = &Parameters::Mu;
-
-#else
-    
-    el_pt->pressure_fct_pt() = &Parameters::get_pressure;
-
-    // Damping parameter for damped solve
-    el_pt->mu_pt()=&Parameters::Mu;
-    
-    el_pt->nu_pt() = &DimensionalParameters::Poisson_ratio;
-    el_pt->eta_pt() = &Parameters::Eta;
-
-#endif
-  }
-  
-
-  
-  // Set the boundary conditions
-  //============================
-  
-  // Get map of curvline boundaries in the mesh
-  std::map<unsigned, TriangleMeshCurviLine*> curviline_boundary_pt =
-   Bulk_mesh_pt->curviline_boundary_pt();
-  
-  
-  // Clamp it
-  if (Parameters::Problem_case==Parameters::Clamped_validation)
-  {
-   
-   // Create vector of pointers to BoundaryConditionForC1PlateBending objects
-   // that specify the imposed displacements along the boundary
-   Vector<BoundaryConditionForC1PlateBending*> boundary_values_pt(3);
-   boundary_values_pt[0]= new Parameters::ZeroC0BoundaryConditions;
-   boundary_values_pt[1]= new Parameters::ZeroC0BoundaryConditions;
-   boundary_values_pt[2]= new Parameters::ZeroC1BoundaryConditions;
-   
-    // Set the boundary conditions on the outer boundaries
-   unsigned nbound = 4;
-   for(unsigned b = 0; b < nbound; b++)
-    {
-     const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
-     for(unsigned e=0;e<nb_element;e++)
-      {
-       // Get pointer to bulk element adjacent to b
-       ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->boundary_element_pt(b,e));
-
-       // Clamp: i.e. pin the two in-plane displacements, and pin the out-of-plane
-       // displacement and its normal derivative. We also apply implied
-       // boundary conditions (e.g. specification of dw/dn also implies
-       // d^2w/dn/dzeta etc.)
-       el_pt->fully_clamp_specified_boundary(b,boundary_values_pt,
-                                             curviline_boundary_pt[b]);
-      }
-    }
-  }
-
-  // Pin it 
-  else if (Parameters::Problem_case==Parameters::Pinned_validation)
-  {
-   
-   // Create vector of pointers to BoundaryConditionForC1PlateBending objects
-   // that specify the imposed displacements along the boundary
-   Vector<BoundaryConditionForC1PlateBending*> boundary_values_pt(3);
-   boundary_values_pt[0]= new Parameters::ZeroC0BoundaryConditions;
-   boundary_values_pt[1]= new Parameters::ZeroC0BoundaryConditions;
-   boundary_values_pt[2]= new Parameters::ZeroC0BoundaryConditions;
-   
-    // Set the boundary conditions on the outer boundaries
-   unsigned nbound = 4;
-   for(unsigned b = 0; b < nbound; b++)
-    {
-     const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
-     for(unsigned e=0;e<nb_element;e++)
-      {
-       // Get pointer to bulk element adjacent to b
-       ELEMENT* el_pt = dynamic_cast<ELEMENT*>(Bulk_mesh_pt->boundary_element_pt(b,e));
-
-       // Pin i.e. pin the in-plane and out-of plane displacements
-       // We also apply implied
-       // boundary conditions (e.g. specification of w also implies
-       // dw/dt and d^2w/dt^2 etc.
-       el_pt->pin_specified_boundary(b,boundary_values_pt,
-                                     curviline_boundary_pt[b]);
-      }
-    }
-  }
-  // Balance on edge along line
-  else if (Parameters::Problem_case==Parameters::Balance_on_edge)
-   {
-    pin_for_balance_on_edge();
-   }
-  // All other cases: simply pin and stop rotation via the centre
-  else if (Parameters::Problem_case==Parameters::Free_edges)
-   {
-    pin_all_displacements_and_rotation_at_centre_node();
-   }
-  else
-   {
-    oomph_info << "Never get here" << std::endl;
-    abort();
-   }
-  
    
   // Update the corner constraints based on the applied
   // boundary conditions. NOTE: This must be called
@@ -1861,279 +1215,11 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
   // Set directory
   Doc_info.set_directory("RESLT");
 
-  // Open trace file
-  char filename[100];
-  sprintf(filename, "RESLT/trace.dat");
-  Trace_file.open(filename);
-
-
-  
-  // Setup sample points for line visualiser
-  unsigned  npt=100;
-  Vector<Vector<double> > coord_vec(npt);
-  coord_vec[0].resize(2);
-  coord_vec[0][0]=0.0;
-  coord_vec[0][1]=0.0;
-  for (unsigned j=1;j<npt;j++)
-   {
-    coord_vec[j].resize(2);
-    coord_vec[j][0]=double(j)/double(npt);
-    coord_vec[j][1]=0.0;
-   }
-
-  
-  // The C1 elements don't provide a standard implementation
-  // of dshape(s,...) so locate_zeta has to use finite
-  // differencing. Call this before setting up the
-  // line visualiser; this is where the locate_zeta happens!
-  Locate_zeta_helpers::Evaluate_dzeta_ds_by_fd=true;
-
-  
-  // Setup line visualiser
-  LV_pt=new LineVisualiser(Bulk_mesh_pt,
-                           coord_vec);
-
 
   
 } // end Constructor
 
 
-
-
-
-
-//==start_of_pin_all_displacements_and_rotation_at_centre_node================
-/// pin all displacements and rotations in the centre
-//============================================================================
-template<class ELEMENT>
-void UnstructuredC1PlateProblem<ELEMENT>::
-pin_all_displacements_and_rotation_at_centre_node()
-{
- 
- // Choose non-centre node on which we'll supress
- // the rigid body rotation around the z axis.
- double max_x_potentially_pinned_node=-DBL_MAX;
- Node* pinned_rotation_node_pt=0;
- Node* pinned_node_pt=0;
- double min_dist_from_origin=DBL_MAX;
- 
- // Pin the node that is at the centre in the domain
- unsigned num_int_nod=Bulk_mesh_pt->nboundary_node(Inner_boundary0);
- for (unsigned inod=0;inod<num_int_nod;inod++)
-  {
-   // Get node point
-   Node* nod_pt=Bulk_mesh_pt->boundary_node_pt(Inner_boundary0,inod);
-   
-   // Find the node with the largest x coordinate
-   if (fabs(nod_pt->x(0))>max_x_potentially_pinned_node)
-    {
-     max_x_potentially_pinned_node=fabs(nod_pt->x(0));
-     pinned_rotation_node_pt=nod_pt;
-    }
-   
-   // If the node is on the other internal boundary too
-   double dist=sqrt(pow(nod_pt->x(0),2)+pow(nod_pt->x(1),2));
-   if (dist<min_dist_from_origin)
-    {
-     pinned_node_pt=nod_pt;
-     min_dist_from_origin=dist;
-    }
-  }
- 
-#ifdef USE_KS
- 
- // Get relevant information from first element
- ELEMENT* first_el_pt=dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(0));
- 
- // We're setting all dofs to zero
- double value=0.0;
- 
- // The three displacement directions
- for (unsigned i_field=0;i_field<3;i_field++)
-  {
-   const unsigned first_nodal_type_index =
-    first_el_pt->first_nodal_type_index_for_field(i_field);
-   
-   // Types: 0: u; 1: u_n; 2: u_t; 3: u_nn; 4: u_tn; 5: u_tt
-   if (i_field<2)
-    {
-     // In plane: just the value
-     unsigned k_type=0;
-     pinned_node_pt->pin(first_nodal_type_index + k_type);
-     pinned_node_pt->set_value(first_nodal_type_index + k_type, value);
-
-     oomph_info << "Pinning (in-plane) " << first_nodal_type_index + k_type
-                << " at "
-                << pinned_node_pt->x(0) << " "
-                << pinned_node_pt->x(1) << " "
-                << std::endl;
-    }
-   else
-    {
-     // Out of plane: w, w_n, w_t
-     for (unsigned k_type=0;k_type<3;k_type++)
-      {
-       pinned_node_pt->pin(first_nodal_type_index + k_type);
-       pinned_node_pt->set_value(first_nodal_type_index + k_type, value);
-       
-       oomph_info << "Pinning (oo-plane) " << first_nodal_type_index + k_type
-                  << " at "
-                  << pinned_node_pt->x(0) << " "
-                  << pinned_node_pt->x(1) << " "
-                  << std::endl;
-      }
-    }
-    
-   // Pin y displacement at node at furthest x distance to suppress rotation about
-   // the vertical axis
-   if (i_field==1)
-    {
-     unsigned k_type=0;
-     pinned_rotation_node_pt->pin(first_nodal_type_index + k_type);
-     pinned_rotation_node_pt->set_value(first_nodal_type_index + k_type, value);
-     
-     oomph_info << "Pinning (z rot via y displ) " << first_nodal_type_index + k_type
-                << " at "
-                << pinned_rotation_node_pt->x(0) << " "
-                << pinned_rotation_node_pt->x(1) << " "
-                << std::endl;
-    }
-    
-  }
- 
-#else
- 
- // Constrain central node which is not rotated (though it doesn't
- // really matter if it was; we can either pin dw/dx and dw/dy or dw/dn
- // and dw/dt (relative to whatever directions the dof has been rotated
- // to)
- // - In-plane dofs are values 0 and 1
- // - Out of plane displacement is value 2;
- // - x and y (or n and t) derivatives of w are values 3 and 4.
- pinned_node_pt->pin(0);
- pinned_node_pt->set_value(0,0.0);
- pinned_node_pt->pin(1);
- pinned_node_pt->set_value(1,0.0);
- pinned_node_pt->pin(2);
- pinned_node_pt->set_value(2,0.0);
- pinned_node_pt->pin(3);
- pinned_node_pt->set_value(3,0.0);
- pinned_node_pt->pin(4);
- pinned_node_pt->set_value(4,0.0);
- 
- oomph_info << "Pinning (FvK dofs 0,1,2,3,4) "
-            << " at "
-            << pinned_node_pt->x(0) << " "
-            << pinned_node_pt->x(1) << " "
-            << std::endl;
- 
- // Pin y displacement at node at furthest x distance to suppress rotation about
- // the vertical axis
- pinned_rotation_node_pt->pin(1);
- 
- oomph_info << "Pinning (FvK dofs 1) "
-            << " at "
-            << pinned_rotation_node_pt->x(0) << " "
-            << pinned_rotation_node_pt->x(1) << " "
-            << std::endl;
- 
-#endif
-}
-
-
-
-//==start_of_pin_for_balance_on_edge=========================================
-/// Apply bcs so that sheet is balanced on edge in the middle
-//============================================================================
-template<class ELEMENT>
-void UnstructuredC1PlateProblem<ELEMENT>::pin_for_balance_on_edge()
-{
- 
- // Pin all nodes along internal boundary "0"
- unsigned num_int_nod=Bulk_mesh_pt->nboundary_node(Inner_boundary0);
- for (unsigned inod=0;inod<num_int_nod;inod++)
-  {
-   // Get node point
-   Node* nod_pt=Bulk_mesh_pt->boundary_node_pt(Inner_boundary0,inod);
-   
-#ifdef USE_KS
-   
-   // Get relevant information from first element
-   ELEMENT* first_el_pt=dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(0));
-   
-   // We're setting all dofs to zero
-   double value=0.0;
-   
-   // The three displacement directions
-   for (unsigned i_field=0;i_field<3;i_field++)
-    {
-     const unsigned first_nodal_type_index =
-      first_el_pt->first_nodal_type_index_for_field(i_field);
-     
-     // Types: 0: u; 1: u_n; 2: u_t; 3: u_nn; 4: u_tn; 5: u_tt
-     //        0: u; 1: u_x; 2: u_y; 3: u_xx; 4: u_xy; 5: u_yy
-     if (i_field<2)
-      {
-       // In plane: just the value
-       unsigned k_type=0;
-       nod_pt->pin(first_nodal_type_index + k_type);
-       nod_pt->set_value(first_nodal_type_index + k_type, value);
-      }
-     else
-      {
-       // Out of plane: w, w_x, w_xx
-       for (unsigned k_type=0;k_type<4;k_type++)
-        {
-         if (k_type!=2)
-          {
-           nod_pt->pin(first_nodal_type_index + k_type);
-           nod_pt->set_value(first_nodal_type_index + k_type, value);
-          }
-        }
-      }
-     
-     
-  }
-   
-#else
-   
-   // - In-plane dofs are values 0 and 1
-   // - Out of plane displacement is value 2;
-   // - x and y (or t and n) derivatives of w are values 3 and 4.
-
-
-   // oomph_info << "Pinning at: "
-   //            << nod_pt->x(0) << " "
-   //            << nod_pt->x(1) << " "
-   //            << std::endl;
-
-   
-   // u
-   nod_pt->pin(0);
-   nod_pt->set_value(0,0.0);
-   // v
-   nod_pt->pin(1);
-   nod_pt->set_value(1,0.0);
-
-   // Only vertex nodes have w
-   if (nod_pt->nvalue()>2)
-    {
-     // w
-     nod_pt->pin(2);
-     nod_pt->set_value(2,0.0);
-     // w_x
-     nod_pt->pin(3);
-     nod_pt->set_value(3,0.0);
-     
-      // w_y (to suppress rotation about edge)
-     nod_pt->pin(4);
-     nod_pt->set_value(4,0.0);
-    }
-   
-#endif
-   
-  }
-}
 
 
 
@@ -2182,14 +1268,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(bool steady)
  some_file2.close();
 
  #endif
- 
- // Output line visualiser solution 
- sprintf(filename,"%s/line_soln%i.dat",
-         Doc_info.directory().c_str(),
-         Doc_info.number());
- some_file.open(filename);
- LV_pt->output(some_file);
- some_file.close();
 
 
 
@@ -2200,129 +1278,11 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(bool steady)
 
 
 
-// // hierher
-
-// //========================================================================
-// /// Validate interpolation of normal derivative along curved edge
-// //========================================================================
-// template<class ELEMENT>
-// template<unsigned M>
-// void UnstructuredC1PlateProblem<ELEMENT>::validate_dpsi_dn_along_edge(
-//  const std::string& dir_name_for_output)
-// {
-
-//  ofstream some_file;
-//  char filename[100];
- 
-// // Test & plot 'em
-//  bool plot_em=true;
-//  if (dir_name_for_output=="") plot_em=false;
-//  if (plot_em)
-//   {
-//    sprintf(filename,"%s/test_curved_element.dat",
-//            dir_name_for_output.c_str());
-//    some_file.open(filename);
-//   }
- 
-//  // Find a curved element on the outer boundary
-//  // hierher (could actually do this for all of them)
-//  // unsigned nb=Bulk_mesh_pt->nboundary();
-//  // for (unsigned b=0;b<nb;b++)
-//  unsigned b=Outer_boundary0;
-//  {
-//   const unsigned nb_element = Bulk_mesh_pt->nboundary_element(b);
-//   for(unsigned e=0;e<nb_element;e++)
-//    {
-//     // Get pointer to bulk element adjacent to b
-//     ELEMENT* el_pt = dynamic_cast<ELEMENT*>(
-//      Bulk_mesh_pt->boundary_element_pt(b,e));
-    
-//     // Output the lot
-//     unsigned nplot=30;
-//     el_pt->full_output(some_file,nplot);
-
-//     // Get basis functions
-//     basis_w_foeppl_von_karman(const Vector<double>& s,
-//                               Shape& psi_n,
-//                               Shape& psi_i) const
-
-// //     // All in CurvableBellElement:
-
- 
-// //     /// Access function for the Bernadou_element_basis_pt
-// //     BernadouElementBasisBase* bernadou_element_basis_pt()
-// //     {
-// //       // [zdec] Should this throw an error if not upgraded or just return null
-// //       // pt?
-// //       return Bernadou_element_basis_pt;
-// //     }
-    
-// //  /// Get the physical coordinate
-// //     template<unsigned BOUNDARY_ORDER>
-// //     void BernadouElementBasis<BOUNDARY_ORDER>::coordinate_x(
-// //       const Vector<double>& s, Vector<double>& fk) const
-// //     {
-// //       Vector<double> s_basic(s);
-// //       permute_shape(s_basic);
-// //       f_k(s_basic, fk);
-// //     }
-
-
-    
-// //     /// Get the Bell/Bernadou basis for the unknowns
-// //     virtual void c1_basis(const Vector<double>& s,
-// //                           Shape& nodal_basis,
-// //                           Shape& bubble_basis) const
-// //     {
-// //       if (element_is_curved())
-// //       {
-// //         Bernadou_element_basis_pt->shape(s, nodal_basis, bubble_basis);
-// //       }
-
-
-// //       // hierher should really drop down into the constituent functinos!
-      
-// //   //======================================================================
-// //   /// Out-of-plane basis functions at local coordinate s
-// //   //======================================================================
-// //   template<unsigned NNODE_1D>
-// //   void FoepplVonKarmanC1CurvableBellElement<
-// //     NNODE_1D>::basis_w_foeppl_von_karman(const Vector<double>& s,
-// //                                          Shape& psi_n,
-// //                                          Shape& psi_i) const
-// //   {
-    
-// //    // hierher Aidan: Kill this commented out bit?
-// // //     throw OomphLibError("This still needs testing for curved elements.",
-// // //                         "void FoepplVonKarmanC1CurvableBellElement<NNODE_1D>::shape_and_test_foeppl_von_karman(...)",
-// // //                         OOMPH_EXCEPTION_LOCATION);
-    
-// //     this->c1_basis(s, psi_n, psi_i);
-    
-// //     // Rotate the degrees of freedom
-// //     rotate_shape(psi_n);
-// //   }
-
-
-  
-//     break; // hierher
-//    }
-//   //break; // hierher
-//  }
-
-//  if (plot_em)
-//   {
-//    some_file.close();
-//   }
-//  exit(0);
-// }
- 
-
 //========================================================================
-/// Validate all basis functions for curved bell
+/// Plot all basis functions for curved bell
 //========================================================================
 template<class ELEMENT>
-void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_functions(
+void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_functions(
  const std::string& dir_name_for_output)
 {
 
@@ -2678,13 +1638,470 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
      oomph_info << "gnuplot -c ../validate_psi_bubble.gp" << std::endl;
      oomph_info << "display validate*png" << std::endl;
      oomph_info << std::endl;
-     exit(0);
-          
     }
   }
  }
 }
    
+
+//========================================================================
+/// Validate all basis functions for curved bell
+//========================================================================
+template<class ELEMENT>
+void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_functions(
+ const std::string& dir_name_for_output)
+{
+ 
+ ofstream some_file;
+ char filename[100];
+ 
+// Test & plot 'em
+ bool plot_em=true;
+ if (dir_name_for_output=="") plot_em=false;
+ 
+ // Find a curved element on the outer boundary
+ unsigned b=Outer_boundary0;
+ {
+  unsigned e=0;
+  {
+   // Get pointer to bulk element adjacent to b
+   ELEMENT* el_pt = dynamic_cast<ELEMENT*>(
+    Bulk_mesh_pt->boundary_element_pt(b,e));
+   
+   if (plot_em)
+    {
+     sprintf(filename,"%s/test_curved_element.dat",
+             dir_name_for_output.c_str());
+     some_file.open(filename);
+     
+     // Output the lot
+     unsigned nplot=30;
+     el_pt->full_output(some_file,nplot);
+     
+     some_file.close();
+    }
+   
+   
+   // Find the dimension of the element 
+   const unsigned dim = el_pt->dim(); //2;
+   
+   // The number of first derivatives is the dimension of the element
+   const unsigned n_deriv = dim;
+   
+   // The number of second derivatives is the triangle number of the dimension
+   const unsigned n_2deriv = dim * (dim + 1) / 2;
+   
+   // Find out how many nodes there are for w
+   const unsigned n_w_node = el_pt->nw_node(); // 3; 
+
+   // Get the vector of nodes used for each field
+   const Vector<unsigned> w_nodes = el_pt->get_w_node_indices(); // {0,1,2}; 
+
+   // Find out how many basis types there are at each node
+   const unsigned n_w_nodal_type = el_pt->nw_type_at_each_node(); // 6; 
+
+   // Find out how many basis types there are internally
+   unsigned n_w_internal_type =  el_pt->nw_type_internal(); // 3 or 10
+
+   oomph_info << "n_w_internal_type =  " << n_w_internal_type << std::endl;
+    
+   // Out-of-plane local basis & test functions (bubble and nodal)
+   // ------------------------------------------------------------
+   // Nodal basis & test functions
+   Shape psi_n_w(n_w_node, n_w_nodal_type);
+   Shape test_n_w(n_w_node, n_w_nodal_type);
+   DShape dpsi_n_wdxi(n_w_node, n_w_nodal_type, n_deriv);
+   DShape dtest_n_wdxi(n_w_node, n_w_nodal_type, n_deriv);
+   DShape d2psi_n_wdxi2(n_w_node, n_w_nodal_type, n_2deriv);
+   DShape d2test_n_wdxi2(n_w_node, n_w_nodal_type, n_2deriv);
+   
+   // Internal basis & test functions
+   Shape psi_i_w(n_w_internal_type);
+   Shape test_i_w(n_w_internal_type);
+   DShape dpsi_i_wdxi(n_w_internal_type, n_deriv);
+   DShape dtest_i_wdxi(n_w_internal_type, n_deriv);
+   DShape d2psi_i_wdxi2(n_w_internal_type, n_2deriv);
+   DShape d2test_i_wdxi2(n_w_internal_type, n_2deriv);
+   
+   // Number of interpolation-type tests we have to do:
+   unsigned n_interpolation_test=n_w_node*n_w_nodal_type+n_w_internal_type;
+   
+   oomph_info << "Number of interpolation-type tests to do: "
+              << n_interpolation_test << std::endl;
+
+
+   // Test matrix
+   DenseDoubleMatrix test_matrix(n_interpolation_test);
+   
+   
+   // "Points" where interpolation property ought to be satisfied:
+   std::map<std::string, // type of interpolation (a,b,...)
+            Vector<      // instances of this (e.g. the three vertex points a
+             // end up in a Vector of length 3). 
+             std::pair<  // for each instance store a pair:
+              Vector<double>,     // first  part of pair stores the coordinates;
+              Vector<std::string> // second part of pair stores the types of 
+              // dofs (value, deriv, ...); in general there
+              // are multiple ones (e.g. at the vertices we
+              // have 6) so we store them in a vector
+              >>> test_point;
+   
+   // At this stage we have only three vertex nodes ("a") and the internal data ("e")
+   test_point["a"].resize(3);
+   test_point["a"][0]={{1.0,0.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
+   test_point["a"][1]={{0.0,1.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
+   test_point["a"][2]={{0.0,0.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
+   switch (n_w_internal_type)
+    {
+    case 3:
+     test_point["e"].resize(3);
+     test_point["e"][0]={{0.5 ,0.25},{"w"}};
+     test_point["e"][1]={{0.25,0.5 },{"w"}};
+     test_point["e"][2]={{0.25,0.25},{"w"}};
+     
+     break;
+     
+    case 10:
+     test_point["e"].resize(10);
+     test_point["e"][0]={{1.0/6.0,4.0/6.0},{"w"}};
+     test_point["e"][1]={{1.0/6.0,3.0/6.0},{"w"}};
+     test_point["e"][2]={{1.0/6.0,2.0/6.0},{"w"}};
+     test_point["e"][3]={{1.0/6.0,1.0/6.0},{"w"}};
+     
+     test_point["e"][4]={{2.0/6.0,1.0/6.0},{"w"}};
+     test_point["e"][5]={{3.0/6.0,1.0/6.0},{"w"}};
+     test_point["e"][6]={{4.0/6.0,1.0/6.0},{"w"}};
+     
+     test_point["e"][7]={{3.0/6.0,2.0/6.0},{"w"}};
+     test_point["e"][8]={{2.0/6.0,3.0/6.0},{"w"}};
+     
+     test_point["e"][9]={{2.0/6.0,2.0/6.0},{"w"}};
+     
+     break;
+     
+    default:
+     throw OomphLibError("Never get here!",
+                         OOMPH_CURRENT_FUNCTION,
+                         OOMPH_EXCEPTION_LOCATION);
+    }
+   
+   // Linearly enumerated basis functions themselves
+   Shape psi(n_interpolation_test);
+   
+   // Linearly enumerated first derivs (x,y) or (n,t)
+   DShape dpsi(n_interpolation_test,2);
+   
+   // Linearly enumerated  2nd derivs (xx, xy, yy) or (or nn, nt,tt) 
+   DShape d2psi(n_interpolation_test,3);
+   
+   // Test & plot 'em
+   bool plot_em=true;
+   if (dir_name_for_output=="") plot_em=false;
+   if (plot_em)
+    {
+     sprintf(filename,"%s/curved_bell_test_points.dat",
+             dir_name_for_output.c_str());
+     some_file.open(filename);
+    }
+   
+   // output intermediate results to screen
+   bool output_to_screen=true;
+   
+   // Loop over the dofs
+   unsigned interpolation_condition_count=0;
+   
+   // (class of dof: a,[b,d],e)
+   for (auto dof_class : test_point)
+    {
+     
+     if (output_to_screen)
+      {
+       oomph_info << std::fixed << std::setprecision(1);
+      }
+     
+     // Loop over location of all dof locations of this class (a1,a2,a3,...)
+     // dof_class.second is a vector containing the pairs of location and
+     // quantities to be interpolated/checked
+     unsigned count=0;
+     for (auto dof_location_and_tests : dof_class.second)
+      {
+       // Tell us what you're doing
+       if (output_to_screen)
+        {
+         oomph_info << dof_class.first << count << " : " << std::endl;
+        }
+       
+       // List coordinates of test point (dof_location_and_tests.first is the vector
+       // of coordinates)
+       if (plot_em)
+        {
+         for (unsigned i=0;i<2;i++)
+          {
+           some_file << (dof_location_and_tests.first)[i] << " ";
+          }
+        }
+       
+       
+       // Call the derivatives of the shape and test functions 
+       //double J =
+       el_pt->d2basis_and_d2test_w_eulerian_foeppl_von_karman(dof_location_and_tests.first,
+                                                              psi_n_w,
+                                                              psi_i_w,
+                                                              dpsi_n_wdxi,
+                                                              dpsi_i_wdxi,
+                                                              d2psi_n_wdxi2,
+                                                              d2psi_i_wdxi2,
+                                                              test_n_w,
+                                                              test_i_w,
+                                                              dtest_n_wdxi,
+                                                              dtest_i_wdxi,
+                                                              d2test_n_wdxi2,
+                                                              d2test_i_wdxi2);
+       
+       
+       // Move across into 1D enumeration:
+       unsigned count=0;
+       
+       // Nodal first...
+       for (unsigned j=0;j<n_w_node;j++)
+        {
+         for (unsigned k=0;k<n_w_nodal_type;k++)
+          {
+           psi(count)=psi_n_w(j,k);
+           dpsi(count,0)=dpsi_n_wdxi(j,k,0);
+           dpsi(count,1)=dpsi_n_wdxi(j,k,1);
+           d2psi(count,0)=d2psi_n_wdxi2(j,k,0);
+           d2psi(count,1)=d2psi_n_wdxi2(j,k,1);
+           d2psi(count,2)=d2psi_n_wdxi2(j,k,2);
+           count++;
+          }
+        }
+       // then the internal (bubble) ones:
+       for (unsigned j=0;j<n_w_internal_type;j++)
+        {
+         psi(count)=psi_i_w(j);
+         dpsi(count,0)=dpsi_i_wdxi(j,0);
+         dpsi(count,1)=dpsi_i_wdxi(j,1);
+         d2psi(count,0)=d2psi_i_wdxi2(j,0);
+         d2psi(count,1)=d2psi_i_wdxi2(j,1);
+         d2psi(count,2)=d2psi_i_wdxi2(j,2);
+         count++;
+        }
+       
+       
+       // Loop over test types: dof_location_and_tests.second
+       // is the vector whose strings tell us what quantity
+       // we're supposed to interpolate/test
+       for (auto test_type : dof_location_and_tests.second)
+        {       
+         if (output_to_screen)
+          {         
+           oomph_info << test_type << " " << std::endl;
+          }
+         
+         if (test_type=="w")
+          {
+           for (unsigned i=0;i<n_interpolation_test;i++)
+            {
+             test_matrix(interpolation_condition_count,i)=psi[i];
+             if (output_to_screen) oomph_info << psi[i] << " ";
+            }
+          }
+         else if (test_type=="dwdx")
+          {
+           for (unsigned i=0;i<n_interpolation_test;i++)
+            {
+             test_matrix(interpolation_condition_count,i)=dpsi(i,0);
+             if (output_to_screen) oomph_info << dpsi(i,0) << " ";
+            }
+          }
+         else if (test_type=="dwdy")
+          {
+           for (unsigned i=0;i<n_interpolation_test;i++)
+            {
+             test_matrix(interpolation_condition_count,i)=dpsi(i,1);
+             if (output_to_screen) oomph_info << dpsi(i,1) << " ";
+            }
+          }
+         else if (test_type=="-dwdx")
+          {
+           for (unsigned i=0;i<n_interpolation_test;i++)
+            {
+             test_matrix(interpolation_condition_count,i)=-dpsi(i,0);
+             if (output_to_screen) oomph_info << -dpsi(i,0) << " ";
+            }
+          }
+         else if (test_type=="-dwdy")
+          {
+           for (unsigned i=0;i<n_interpolation_test;i++)
+            {
+             test_matrix(interpolation_condition_count,i)=-dpsi(i,1);
+             if (output_to_screen) oomph_info << -dpsi(i,1) << " ";
+            }
+          }
+         else if (test_type=="dwdn")
+          {
+           for (unsigned i=0;i<n_interpolation_test;i++)
+            {
+             test_matrix(interpolation_condition_count,i)=
+              1.0/sqrt(2.0)*(dpsi(i,0)+dpsi(i,1));
+             if (output_to_screen)
+              {
+               oomph_info << 1.0/sqrt(2.0)*(dpsi(i,0)+dpsi(i,1))
+                          << " ";
+              }
+            }
+          }
+         else if (test_type=="d2wdx2")
+          {
+           for (unsigned i=0;i<n_interpolation_test;i++)
+            {
+             test_matrix(interpolation_condition_count,i)=d2psi(i,0);
+             if (output_to_screen) oomph_info << d2psi(i,0) << " ";
+            }
+          }
+         else if (test_type=="d2wdxdy")
+          {
+           for (unsigned i=0;i<n_interpolation_test;i++)
+            {
+             test_matrix(interpolation_condition_count,i)=d2psi(i,1);
+             if (output_to_screen) oomph_info << d2psi(i,1) << " ";
+            }
+          }
+         else if (test_type=="d2wdy2")
+          {
+           for (unsigned i=0;i<n_interpolation_test;i++)
+            {
+             test_matrix(interpolation_condition_count,i)=d2psi(i,2);
+             if (output_to_screen) oomph_info << d2psi(i,2) << " ";
+            }
+          }
+         else
+          {
+           throw OomphLibError("Never get here!",
+                               OOMPH_CURRENT_FUNCTION,
+                               OOMPH_EXCEPTION_LOCATION);
+          }
+         
+         interpolation_condition_count++;
+         if (output_to_screen) oomph_info << std::endl;
+         
+        }
+       if (output_to_screen) oomph_info << std::endl;
+       if (plot_em)
+        {
+         some_file << std::endl;
+        }
+       count++;
+       
+       
+      }
+    }
+   if (plot_em)
+    {
+     some_file.close();
+    }
+   
+   // Test: exactly one unit entry per row
+   double tol=1.0e-10;
+   bool test_passed=true;
+   for (unsigned i=0;i<n_interpolation_test;i++)
+    {
+     unsigned count_one_in_row=0;
+     unsigned count_zero_in_row=0;
+     unsigned count_one_in_col=0;
+     unsigned count_zero_in_col=0;
+     for (unsigned j=0;j<n_interpolation_test;j++)
+      {
+       if (std::abs(test_matrix(i,j)    )<tol) count_zero_in_row++;
+       if (std::abs(test_matrix(i,j)-1.0)<tol) count_one_in_row++;
+       if (std::abs(test_matrix(j,i)    )<tol) count_zero_in_col++;
+       if (std::abs(test_matrix(j,i)-1.0)<tol) count_one_in_col++;
+      }
+     
+     if ((count_one_in_row!=1)||
+         (count_one_in_col!=1)||
+         (count_zero_in_row!=(n_interpolation_test-1))||
+         (count_zero_in_col!=(n_interpolation_test-1)))
+      {
+       test_passed=false;
+       oomph_info << "Test failed: row/col test: "
+                  << i << ": "
+                  <<  count_one_in_row << " "
+                  <<  count_zero_in_row << " "
+                  <<  count_one_in_col << " "
+                  <<  count_zero_in_col << " "
+                  << std::endl;
+       break;
+      }
+    }
+   
+   if (test_passed)
+    {
+     oomph_info << "Test of curved bell basis functions passed!"
+                << std::endl;
+    }
+   
+   
+// // Plot all basis functions
+//    if (plot_em)
+//     {
+//      // Tecplot header info from some generic triangle element
+//      TElement<2,2>* aux_el_pt= new TElement<2,2>;
+//      unsigned nplot=100;
+//      for (unsigned i=0;i<n_interpolation_test;i++)
+//       { 
+//        sprintf(filename,"%s/test_basic_basis%i.dat",
+//                dir_name_for_output.c_str(),i);
+//        some_file.open(filename);
+       
+//        // Tecplot header info
+//        some_file << aux_el_pt->tecplot_zone_string(nplot);
+       
+//        // Loop over plot points
+//        Vector<double> s_plot(2);
+//        unsigned num_plot_points = aux_el_pt->nplot_points(nplot);
+//        for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
+//         {
+//          // Get local coordinates of plot point
+//          aux_el_pt->get_s_plot(iplot, nplot, s_plot);
+         
+//          Shape psi(n_interpolation_test);
+//          b_pt->full_basic_polynomials(s_plot,psi);
+//          DShape dpsi(n_interpolation_test,2); // first derivs
+//          b_pt->dfull_basic_polynomials(s_plot,dpsi);
+//          DShape d2psi(n_interpolation_test,3); // 2nd derivs xx, xy, yy
+//          b_pt->d2full_basic_polynomials(s_plot,d2psi);
+         
+//          some_file << s_plot[0] << " "
+//                    << s_plot[1] << " ";
+//          some_file << psi[i] << " ";
+//          some_file << dpsi(i,0) << " "
+//                    << dpsi(i,1) << " ";
+//          some_file << d2psi(i,0) << " "
+//                    << d2psi(i,1) << " "
+//                    << d2psi(i,2) << " ";
+//          some_file << std::endl;
+//         }
+       
+//        // Write tecplot footer (e.g. FE connectivity lists)
+//        aux_el_pt->write_tecplot_zone_footer(some_file, nplot);
+//        some_file.close();
+//       }
+     
+//      delete aux_el_pt;
+//      aux_el_pt=0;
+     
+//      // oomph_info << "\n\nPlot of basis functions done! Now do: " << std::endl;
+//      // oomph_info << "oomph-convert -z test_basic_basis*dat" << std::endl;
+//      // oomph_info << "makePvd test_basic_basis test_basic_basis.pvd" << std::endl;
+//      // oomph_info << "oomph-convert -p2 test_points.dat " << std::endl;
+//      // oomph_info << "paraview --state test_basic_basis.pvsm " << std::endl;
+//      // oomph_info << std::endl;
+//     }
+  }
+ }
+}
 
 
 
@@ -3213,10 +2630,6 @@ if (plot_em)
   oomph_info << std::endl;
  }
   
-  exit(0);
- 
- 
-  
 
 }
 
@@ -3225,41 +2638,6 @@ if (plot_em)
 
 
  
-
-//========================================================================
-/// Namespace for function that calls doc_solution() during the damped
-/// solves
-//========================================================================
-namespace DocProgressOfDampedSolutions
-{
-
- /// Pointer to the problem class (to get access the doc solution function
- #ifdef USE_KS
- 
-  UnstructuredC1PlateProblem<KoiterSteigmannC1CurvableBellElement>*
-  Problem_pt=0;
-
-#else
-
- UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>>*
-   Problem_pt=0;
-
-#endif
-
- /// Function to call doc_solution during damped solves
- void doc_solution_during_damped_solve(const unsigned& i_step)
- {
-  oomph_info << "Docing solution for damped solve step "
-             << i_step << std::endl;
-
-  // bumps up counter by itself.
-  bool steady=false;
-  Problem_pt->doc_solution(steady);
-  
- }
-
-} // end of namespace
-
 
 
 //=======start_of_main========================================
@@ -3272,51 +2650,6 @@ int main(int argc, char** argv)
 
   // Store command line arguments
   CommandLineArgs::setup(argc, argv);
-
-  // Define possible command line arguments and parse the ones that
-  // were actually specified
-
-  // Clamped boundary conditions?
-  CommandLineArgs::specify_command_line_flag("--nplot",&Parameters::Nplot);
-
-  // T-shaped internal boundary
-  CommandLineArgs::specify_command_line_flag("--use_t_shape_internal_boundaries");
-
-  // Use polyline for internal boundaries
-  CommandLineArgs::specify_command_line_flag("--use_polyline_for_internal_boundaries");
-
-  // Clamped boundary conditions?
-  CommandLineArgs::specify_command_line_flag("--use_clamped_bc");
-
-  // Pinned boundary conditions?
-  CommandLineArgs::specify_command_line_flag("--use_pinned_bc");
-
-  // Balance on edge boundary conditions?
-  CommandLineArgs::specify_command_line_flag("--use_balance_on_edge_bc");
-  
-  // Rotate coords?
-  CommandLineArgs::specify_command_line_flag
-   ("--do_not_rotate_coords_on_curved_boundaries");
-
-  // Element area
-  CommandLineArgs::specify_command_line_flag("--el_area",
-                                             &Parameters::Element_area);
-  
-  // // Square outer boundary (straight curvilines)
-  // CommandLineArgs::specify_command_line_flag
-  //  ("--outer_boundary_straight_curved");
-  
-  // // Square outer boundary (polygonal)
-  // CommandLineArgs::specify_command_line_flag
-  //  ("--outer_boundary_straight_poly");
-
-  // hierher check that not both are specified
-
-  
-  // Test drive damped solve
-  CommandLineArgs::specify_command_line_flag
-   ("--test_damped_solve");
-  
   
   // Parse command line
   CommandLineArgs::parse_and_assign();
@@ -3324,41 +2657,7 @@ int main(int argc, char** argv)
   // Doc what has actually been specified on the command line
   CommandLineArgs::doc_specified_flags();
 
-  if (CommandLineArgs::command_line_flag_has_been_set
-      ("--do_not_rotate_coords_on_curved_boundaries"))
-   {
-    Parameters::Rotate_coordinates_on_all_curvilinear_boundaries=false;
-   }
-  
-  
-  // Check consistency
-  if (CommandLineArgs::command_line_flag_has_been_set("--use_clamped_bc"))
-  {
-    Parameters::Problem_case = Parameters::Clamped_validation;
-    if (!Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
-     {
-      oomph_info << "clamped bcs require rotated dofs on boundary" << std::endl;
-      abort();
-     }
-  }
-  
-  // Check consistency
-  if (CommandLineArgs::command_line_flag_has_been_set("--use_pinned_bc"))
-  {
-    Parameters::Problem_case = Parameters::Pinned_validation;
-    if (!Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
-     {
-      oomph_info << "pinned bcs require rotated dofs on boundary" << std::endl;
-      abort();
-     }
-  }
 
-  /// Balance on edge
-  if (CommandLineArgs::command_line_flag_has_been_set("--use_balance_on_edge_bc"))
-   {
-    Parameters::Problem_case = Parameters::Balance_on_edge;
-  }
-  
 
   // // Test 3: From the very top: interpolated_x
   // {
@@ -3408,9 +2707,9 @@ int main(int argc, char** argv)
 #endif
 
 
-  // // Test 1: From the very bottom: Monomials are OK
-  // problem.validate_monomials_to_basic_basis_functions<5>();
-  // problem.validate_monomials_to_basic_basis_functions<3>();
+  // Test 1: From the very bottom: Monomials are OK
+  problem.validate_monomials_to_basic_basis_functions<5>();
+  problem.validate_monomials_to_basic_basis_functions<3>();
 
 
   // Document the initial state
@@ -3419,86 +2718,6 @@ int main(int argc, char** argv)
   // // Test 2: From the very top: curved bell basis are not OK
   std::string dir_name="RESLT";
   problem.validate_curved_bell_and_bubble_basis_functions(dir_name);
-
   
-  exit(0);
-  
-  // Pass problem pointer to namespace for docing damped solves
-  DocProgressOfDampedSolutions::Problem_pt=&problem;
-
-
-  // Update/set non-dim parameters
-  Parameters::update_nondim_parameters();
-   
-  // Tweak Newton solver parameters
-  problem.max_residuals() = 1.0e3;
-
-  // Document the initial state
-  problem.doc_solution();
-
-  // Set pressure increment
-  unsigned n_step = 100;
-  double p_inc = Parameters::P_max/double(n_step); // 1.0e-2;
-
-  // Initialise actual pressure
-  Parameters::P_mag = 0.0;
-
-  oomph_info << "Doing nstep = " << n_step << " pressure increments of "
-             << p_inc << std::endl;
-
-  // exit(0);
-
-  
-  if (CommandLineArgs::command_line_flag_has_been_set("--test_damped_solve"))
-   {
-    // // 0.1 and 100 steps gives nice animation
-    // p_inc=1.0;
-    // n_step=10;
-    Parameters::P_cos=1.0;
-   }
-
-  
-  // Overwrite for "Balance on Edge" case
-  if (Parameters::Problem_case == Parameters::Balance_on_edge)
-   {
-    p_inc = 1.0; 
-    n_step = 3; 
-   }
-  
-
-
-  for( unsigned i = 0; i < n_step; i++ )
-  {
-   // Bump
-   Parameters::P_mag += p_inc;
-
-   if (!CommandLineArgs::command_line_flag_has_been_set("--test_damped_solve"))
-    {
-     // Solve the system
-     problem.newton_solve();
-    }
-   else
-    {
-     // initial value for timestep
-     double dt=1.0;
-     
-     // tolerance for adaptive timestepping; somewhat random
-     // hierher Aidan: any recommendations?
-     double epsilon=0.01; // ten times smaller shows timestepping nicely. 1.0e-3;
-
-     // Damped solve
-     double suggested_next_dt=
-      problem.damped_solve(dt,epsilon,
-                           &DocProgressOfDampedSolutions::doc_solution_during_damped_solve);
-
-     // Can (but don't have to) to use this for next solve
-     oomph_info << "Suggested next dt = " << suggested_next_dt << std::endl;
-    }
-
-   
-   // Document the current solution
-   problem.doc_solution();
-  }
-
 
 } // End of main
