@@ -284,7 +284,7 @@ public:
      double fract_zero=double(ii)/double(M_poly_dev+1);
      product*=(eval_point-fract_zero);
     }
-   Ampl_of_deviation=1.0e-3/product; //1.0e-2/product;
+   Ampl_of_deviation=0.0; // hierher1.0e-2/product; //1.0e-2/product;
   }
  
  /// Broken copy constructor
@@ -2361,8 +2361,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    C1CurviLine* curviline_pt=c1_curviline_boundary_pt[b];
    
     
-   // Find the dimension of the element [zdec] will this ever not be 2?
-   const unsigned dim = el_pt->dim(); //2; // hierher should come from here 
+   // Find the dimension of the element 
+   const unsigned dim = el_pt->dim(); //2;
     
    // The number of first derivatives is the dimension of the element
    const unsigned n_deriv = dim;
@@ -2371,17 +2371,18 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    const unsigned n_2deriv = dim * (dim + 1) / 2;
     
    // Find out how many nodes there are for w
-   const unsigned n_w_node = el_pt->nw_node(); // 3; // hierher el_pt->nw_node();
+   const unsigned n_w_node = el_pt->nw_node(); // 3; 
 
    // Get the vector of nodes used for each field
-   const Vector<unsigned> w_nodes = el_pt->get_w_node_indices(); // {0,1,2}; // hierher el_pt->get_w_node_indices();
+   const Vector<unsigned> w_nodes = el_pt->get_w_node_indices(); // {0,1,2}; 
 
    // Find out how many basis types there are at each node
-   const unsigned n_w_nodal_type = el_pt->nw_type_at_each_node(); // 6; // hierher el_pt->nw_type_at_each_node();
+   const unsigned n_w_nodal_type = el_pt->nw_type_at_each_node(); // 6; 
 
    // Find out how many basis types there are internally
-   unsigned n_w_internal_type =  el_pt->nw_type_internal(); // 3; // // hierher el_pt->nw_type_internal();
-   //if (M==5) n_w_internal_type=10;
+   unsigned n_w_internal_type =  el_pt->nw_type_internal(); // 3 or 10
+
+   oomph_info << "n_w_internal_type =  " << n_w_internal_type << std::endl;
     
    // Out-of-plane local basis & test functions
    // ------------------------------------------
@@ -2561,6 +2562,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                //    fifth order).
                //
                //   psi should be nonzero only for basis functions 0, 2, 5, 6, 8, 11 **CORRECT!**
+               // NOTE WE'RE DOING ROTATED BASES! SO WE'RE INTERPOLATING VALUE v, dv/dn, dv/dt,
+               // d^2v/dn^2, d^2v/dndt, d^2/dt^2
                //
                // NOTE: MAY NOT BE THE EXACT HERMITE POLYNOMIALS BECAUSE OF DIFFERENT PARAMETRISATION
                // OF THE DEFORMED ELEMENT (WORK IN PROGRESS, REVISIT)
@@ -2576,11 +2579,12 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                                        << -drdzeta[0]/norm << " " // 6
                                        << s << " "  // 7
                                        << psi_n_w(j,k) << " " // 8
-                                       << (  dpsi_n_wdxi(j,k,0)*drdzeta[1]
-                                            -dpsi_n_wdxi(j,k,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
-                                       << 1 - 3*s*s + 2*s*s*s << " " // 10
-                                       << s - 2*s*s + s*s*s << " " // 11
-                                       << 3*s*s - 2*s*s*s << " " // 12
+                                       << dpsi_n_wdxi(j,k,0) << " " // 9 (d/dn because we're rotated!)
+                                       // << (  dpsi_n_wdxi(j,k,0)*drdzeta[1]
+                                       //      -dpsi_n_wdxi(j,k,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
+                                       << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
+                                       << s - 2.0*s*s + s*s*s << " " // 11
+                                       << 3.0*s*s - 2.0*s*s*s << " " // 12
                                        << -s*s + s*s*s << " " // 13
                                        << std::endl;
               }
@@ -2619,11 +2623,12 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                                        << -drdzeta[0]/norm << " " // 6
                                        << s << " "  // 7
                                        << psi_i_w(k_type) << " " // 8
-                                       << (  dpsi_i_wdxi(k_type,0)*drdzeta[1]
-                                            -dpsi_i_wdxi(k_type,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
-                                       << 1 - 3*s*s + 2*s*s*s << " " // 10
-                                       << s - 2*s*s + s*s*s << " " // 11
-                                       << 3*s*s - 2*s*s*s << " " // 12
+                                          << dpsi_i_wdxi(k_type,0) << " " // 9 (d/dn because we're rotated!)
+                                       // << (  dpsi_i_wdxi(k_type,0)*drdzeta[1]
+                                       //      -dpsi_i_wdxi(k_type,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
+                                       << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
+                                       << s - 2.0*s*s + s*s*s << " " // 11
+                                       << 3.0*s*s - 2.0*s*s*s << " " // 12
                                        << -s*s + s*s*s << " " // 13
                                        << std::endl;
             }
@@ -2666,7 +2671,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
      aux_el_pt=0;
      
      oomph_info << "\n\nPlot of curved bell basis functions done! Now do: " << std::endl;
-     oomph_info << "cd RESLT";
+     oomph_info << "cd RESLT" << std::endl;
      oomph_info << "gnuplot -c ../validate_dpsidn_bubble.gp" << std::endl;
      oomph_info << "gnuplot -c ../validate_dpsidn_nodal.gp" << std::endl;
      oomph_info << "gnuplot -c ../validate_psi_nodal.gp" << std::endl;
@@ -3355,35 +3360,35 @@ int main(int argc, char** argv)
   }
   
 
-  // Test 3: From the very top: interpolated_x
-  {
+  // // Test 3: From the very top: interpolated_x
+  // {
 
-   // Check accuracy of newton solver when determining local coordiante
-   // of point on curvilinear boundary
-   C1CurviLine::Tol_for_get_zeta=1.0e-12;
+  //  // Check accuracy of newton solver when determining local coordiante
+  //  // of point on curvilinear boundary
+  //  C1CurviLine::Tol_for_get_zeta=1.0e-12;
 
-   // Allow massively warped elements
-   FiniteElement::Accept_negative_jacobian=true;
+  //  // Allow massively warped elements
+  //  FiniteElement::Accept_negative_jacobian=true;
 
    
-   for (unsigned boundary_order=3;boundary_order<=5;boundary_order+=2)
-    {
-     for (unsigned m_poly_actual_boundary=2;
-          m_poly_actual_boundary<=boundary_order+5;
-          m_poly_actual_boundary++)
-      {
-       UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
-        Parameters::Element_area,m_poly_actual_boundary,boundary_order);
+  //  for (unsigned boundary_order=3;boundary_order<=5;boundary_order+=2)
+  //   {
+  //    for (unsigned m_poly_actual_boundary=2;
+  //         m_poly_actual_boundary<=boundary_order+5;
+  //         m_poly_actual_boundary++)
+  //     {
+  //      UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
+  //       Parameters::Element_area,m_poly_actual_boundary,boundary_order);
        
-       oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
-                  << " ; boundary_order = " << boundary_order << " : ";
-       problem.validate_interpolated_x(".",m_poly_actual_boundary, boundary_order);
-      }
-    }
+  //      oomph_info << "Testing with m_poly_actual_boundary = " << m_poly_actual_boundary
+  //                 << " ; boundary_order = " << boundary_order << " : ";
+  //      problem.validate_interpolated_x(".",m_poly_actual_boundary, boundary_order);
+  //     }
+  //   }
        
        
-   exit(0);
-  }
+  //  exit(0);
+  // }
    
 #ifdef USE_KS
   
@@ -3394,9 +3399,11 @@ int main(int argc, char** argv)
 
 #else
 
-  // Build problem 
+  // Build problem
+  unsigned m_poly_actual_boundary=5;
+  unsigned boundary_order=5;
   UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
-    Parameters::Element_area);
+   Parameters::Element_area,m_poly_actual_boundary,boundary_order);
 
 #endif
 
@@ -3406,9 +3413,12 @@ int main(int argc, char** argv)
   // problem.validate_monomials_to_basic_basis_functions<3>();
 
 
+  // Document the initial state
+  problem.doc_solution();
+
   // // Test 2: From the very top: curved bell basis are not OK
-  // std::string dir_name="RESLT";
-  // problem.validate_curved_bell_and_bubble_basis_functions(dir_name);
+  std::string dir_name="RESLT";
+  problem.validate_curved_bell_and_bubble_basis_functions(dir_name);
 
   
   exit(0);

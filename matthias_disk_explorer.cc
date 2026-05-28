@@ -2057,8 +2057,8 @@ int main(int argc, char** argv)
   if (CommandLineArgs::command_line_flag_has_been_set("--test_damped_solve"))
    {
     // // 0.1 and 100 steps gives nice animation
-    // p_inc=1.0;
-    // n_step=10;
+    p_inc=0.1;
+    n_step=10;
     Parameters::P_cos=1.0;
    }
 
