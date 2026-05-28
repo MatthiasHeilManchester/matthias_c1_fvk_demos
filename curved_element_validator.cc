@@ -38,11 +38,8 @@
 #include "meshes/triangle_mesh.h"
 
 // The equations
-#ifdef USE_KS
-#include "c1_koiter_steigmann.h"
-#else
 #include "c1_foeppl_von_karman.h"
-#endif
+
 
 using namespace std;
 using namespace oomph;
@@ -82,7 +79,8 @@ public:
  
  /// Constructor: Pass left and right point.
  TwoDStraightLineFromTwoPoints(const Vector<double>& left,
-                               const Vector<double>& right) 
+                               const Vector<double>& right,
+                               const double& phi=0.0) 
   : GeomObject(1, 2)
   {
 #ifdef PARANOID
@@ -107,11 +105,11 @@ public:
 #endif
 
    Left.resize(2);
-   Left[0]=left[0];
-   Left[1]=left[1];
+   Left[0]=left[0]*cos(phi)-left[1]*sin(phi);
+   Left[1]=left[1]*cos(phi)+left[0]*sin(phi);
    Right.resize(2);
-   Right[0]=right[0];
-   Right[1]=right[1];
+   Right[0]=right[0]*cos(phi)-right[1]*sin(phi);
+   Right[1]=right[1]*cos(phi)+right[0]*sin(phi);
    
   }
  
@@ -565,23 +563,11 @@ namespace Parameters
  /// Nondimensional thickness of plate -- dependent parameter compute!
  double Thickness = 0.0;
 
- #ifdef USE_KS
-
- // hierher update these to make them consistent with fvk
- 
- /// Membrane coupling coefficient 
- double Eta_u = 1.0;
-
-  /// hierher what is this?
- double Eta_sigma = 1.0; 
-
-#else
  
  /// Membrane coupling coefficient (a dependent parameter)
  double Eta = 0.0; // hierher does it have the 1-nu^2 in it?)
                    // 12.0 * (1.0 - Nu * Nu) / (Thickness * Thickness);
 
- #endif
 
  /// Max non-dimensional pressure on bending scale; dependent parameter compute
  double P_max=0.0;
@@ -598,59 +584,6 @@ namespace Parameters
  /// Element area
  double Element_area = 0.5;
 
- #ifdef USE_KS
- 
-  /// Traction depending on the position (x,y) and deformation of the sheet
-  void get_traction(const Vector<double>& x,
-		    const Vector<double>& u,
-		    const DenseMatrix<double>& grad_u,
-		    const Vector<double>& n,
-		    Vector<double>& traction)
-  {
-    // Metric tensor of deformed surface
-    DenseMatrix<double> G(2,2,0.0);
-    for(unsigned alpha = 0; alpha < 2; alpha++)
-    {
-      G(alpha, alpha) += 1.0;
-      for (unsigned beta = 0; beta < 2; beta++)
-      {
-        G(alpha, beta) += grad_u(alpha, beta) + grad_u(beta, alpha);
-	for (unsigned i = 0; i < 3; i++)
-	{
-          G(alpha, beta) += grad_u(i, alpha) * grad_u(i, beta);
-	}
-      }
-    }
-
-
-
-    // hierher Aidan: do we really need this conversion? Lagr/Eulerian. why?
-
-    // hierher pressure --> traction in src too
-
-    // hierher: scale KS like FvK otherwise we'll all go insane!
-    
-    // Find the pressure per undeformed area in terms of the pressure per
-    // deformed area
-    double p = sqrt(G(0,0)*G(1,1) - G(1,0)*G(0,1)) * P_mag/
-     (12.0 * (1.0 - Nu * Nu) / (Thickness * Thickness));
-    
-    // Assign traction
-    traction.resize(3);
-    traction[0] = p * n[0];
-    traction[1] = p * n[1];
-    traction[2] = p * n[2];
-
-    // Dead load
-    if (Parameters::Problem_case == Parameters::Balance_on_edge)
-     {
-      traction[0] = 0.0;
-      traction[1] = 0.0;
-      traction[2] = p;
-     }
-  }
-
-#else
  
  /// Pressure depending on the position (x,y)
   void get_pressure(const Vector<double>& x, double& pressure)
@@ -666,8 +599,6 @@ namespace Parameters
    tau[0]=0.0;
    tau[1]=0.0;
   }
-
- #endif
 
 
 
@@ -775,9 +706,11 @@ class UnstructuredC1PlateProblem : public virtual Problem
 public:
 
   /// Constructor
- UnstructuredC1PlateProblem(double const& element_area = 0.09,
-                             const unsigned& m_poly_actual_boundary=5,
-                             const unsigned& boundary_order=5);
+ UnstructuredC1PlateProblem(double const& element_area,
+                            const unsigned& m_poly_actual_boundary,
+                            const unsigned& boundary_order,
+                            bool use_square_domain,
+                            const double& phi);
 
   /// Destructor
   ~UnstructuredC1PlateProblem()
@@ -799,10 +732,6 @@ public:
  /// Doc the solution
  void doc_solution(bool steady = true);
 
- /// Validate mapping from monomials to 36 [66] basic dofs
- template<unsigned M>
- void validate_monomials_to_basic_basis_functions(const std::string&
-                                                  dir_name_for_output="");
 
  /// Validate all basis functions for curved bell
  void validate_curved_bell_and_bubble_basis_functions(const std::string&
@@ -1016,85 +945,154 @@ template<class ELEMENT>
 UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
 (const double& element_area,
  const unsigned& m_poly_actual_boundary,
- const unsigned& boundary_order)
+ const unsigned& boundary_order,
+ bool use_square_domain,
+ const double& phi)
  : Element_area(element_area)
 {
+ 
+ 
+ // Set directory
+ Doc_info.set_directory("RESLT");
 
-
+ 
  // Build the mesh
  //================
-  
+ TriangleMeshClosedCurve* outer_boundary_pt=0;
+     
  //Outer boundary
- //--------------
- 
- double A = Parameters::A;
- double B = Parameters::B;
- Ellipse* outer_boundary_ellipse_pt = new Ellipse(A, B);
- 
- // Storage for outer boundaries (for triangle)
- Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(4);
+ //-------------
+ if (use_square_domain)
+  {
+   // Straight lines
+   Vector<double> left(2);
+   Vector<double> right(2);
+   double zeta_start = 0.0;
+   double zeta_end = 1.0;
+   unsigned nsegment=4;
 
- //First bit
- double zeta_start = 0.0;
- double zeta_end = 0.5*MathematicalConstants::Pi;
+    
+   // Storage for outer boundaries (for triangle)
+   Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(4);
 
- // Polynomial approximation for ellipse; matching at the end points
- PolynomialApproxToEllipse* poly_approx_pt=new PolynomialApproxToEllipse
-  (outer_boundary_ellipse_pt,zeta_start,zeta_end,m_poly_actual_boundary);
- 
- unsigned nsegment = (unsigned)(MathematicalConstants::Pi/sqrt(Element_area));
- outer_curvilinear_boundary_pt[0] = 
-  new TriangleMeshCurviLine(poly_approx_pt, zeta_start,
-                            zeta_end, nsegment, Outer_boundary0);
- 
- 
- //Second bit
+   // Right
+   left[0] = 1.0;
+   left[1] =-1.0;
+   right[0]= 1.0;
+   right[1]= 1.0;
+   TwoDStraightLineFromTwoPoints* right_line_pt =
+    new TwoDStraightLineFromTwoPoints(left,right,phi);
+    outer_curvilinear_boundary_pt[0] =
+    new TriangleMeshCurviLine(right_line_pt, zeta_start,
+                              zeta_end, nsegment, Outer_boundary0);
+  
+   // Top
+   left[0] = 1.0;
+   left[1] = 1.0;
+   right[0]=-1.0;
+   right[1]= 1.0;
+   TwoDStraightLineFromTwoPoints* top_line_pt =
+    new TwoDStraightLineFromTwoPoints(left,right,phi);
+    outer_curvilinear_boundary_pt[1] =
+    new TriangleMeshCurviLine(top_line_pt, zeta_start,
+                              zeta_end, nsegment, Outer_boundary1);
+   // Left
+   left[0] =-1.0;
+   left[1] = 1.0;
+   right[0]=-1.0;
+   right[1]=-1.0;
+   TwoDStraightLineFromTwoPoints* left_line_pt =
+    new TwoDStraightLineFromTwoPoints(left,right,phi);
+    outer_curvilinear_boundary_pt[2] =
+    new TriangleMeshCurviLine(left_line_pt, zeta_start,
+                              zeta_end, nsegment, Outer_boundary2);
 
- // Straight line
- double zeta_start_next_curved=MathematicalConstants::Pi;
- Vector<double> left(2);
- Vector<double> zeta(1);
- zeta[0]=zeta_end;
- outer_boundary_ellipse_pt->position(zeta,left);
- Vector<double> right(2);
- zeta[0]=zeta_start_next_curved;
- outer_boundary_ellipse_pt->position(zeta,right);
- TwoDStraightLineFromTwoPoints* straight_line_pt =
-  new TwoDStraightLineFromTwoPoints(left,right);
+   // Bottom
+   left[0] =-1.0;
+   left[1] =-1.0;
+   right[0]= 1.0;
+   right[1]=-1.0;
+   TwoDStraightLineFromTwoPoints* bottom_line_pt =
+    new TwoDStraightLineFromTwoPoints(left,right,phi);
+    outer_curvilinear_boundary_pt[3] =
+    new TriangleMeshCurviLine(bottom_line_pt, zeta_start,
+                              zeta_end, nsegment, Outer_boundary3);
+     
+   // Combine
+   outer_boundary_pt =
+    new TriangleMeshClosedCurve(outer_curvilinear_boundary_pt);
+   
+  }
+ else
+  {
+   double A = Parameters::A;
+   double B = Parameters::B;
+   Ellipse* outer_boundary_ellipse_pt = new Ellipse(A, B);
  
- zeta_start = 0.5*MathematicalConstants::Pi;
- zeta_end = MathematicalConstants::Pi;
- outer_curvilinear_boundary_pt[1] =
-  new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
-                            zeta_end, nsegment, Outer_boundary1);
+   // Storage for outer boundaries (for triangle)
+   Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(4);
+
+   //First bit
+   double zeta_start = 0.0;
+   double zeta_end = 0.5*MathematicalConstants::Pi;
+
+   // Polynomial approximation for ellipse; matching at the end points
+   PolynomialApproxToEllipse* poly_approx_pt=new PolynomialApproxToEllipse
+    (outer_boundary_ellipse_pt,zeta_start,zeta_end,m_poly_actual_boundary);
+ 
+   unsigned nsegment = (unsigned)(MathematicalConstants::Pi/sqrt(Element_area));
+   outer_curvilinear_boundary_pt[0] = 
+    new TriangleMeshCurviLine(poly_approx_pt, zeta_start,
+                              zeta_end, nsegment, Outer_boundary0);
+ 
+ 
+   //Second bit
+
+   // Straight line
+   double zeta_start_next_curved=MathematicalConstants::Pi;
+   Vector<double> left(2);
+   Vector<double> zeta(1);
+   zeta[0]=zeta_end;
+   outer_boundary_ellipse_pt->position(zeta,left);
+   Vector<double> right(2);
+   zeta[0]=zeta_start_next_curved;
+   outer_boundary_ellipse_pt->position(zeta,right);
+   TwoDStraightLineFromTwoPoints* straight_line_pt =
+    new TwoDStraightLineFromTwoPoints(left,right);
+ 
+   zeta_start = 0.5*MathematicalConstants::Pi;
+   zeta_end = MathematicalConstants::Pi;
+   outer_curvilinear_boundary_pt[1] =
+    new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
+                              zeta_end, nsegment, Outer_boundary1);
   
    
    //Third bit
- zeta_start = zeta_start_next_curved;
- zeta_end = 1.5*MathematicalConstants::Pi;
- outer_curvilinear_boundary_pt[2] = 
-  new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
-                            zeta_end, nsegment, Outer_boundary2);
+   zeta_start = zeta_start_next_curved;
+   zeta_end = 1.5*MathematicalConstants::Pi;
+   outer_curvilinear_boundary_pt[2] = 
+    new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
+                              zeta_end, nsegment, Outer_boundary2);
  
  
- //Fourth bit
- zeta_start = 1.5*MathematicalConstants::Pi;
- zeta_end = 2.0*MathematicalConstants::Pi;
- outer_curvilinear_boundary_pt[3] =
-  new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
-                            zeta_end, nsegment, Outer_boundary3);
+   //Fourth bit
+   zeta_start = 1.5*MathematicalConstants::Pi;
+   zeta_end = 2.0*MathematicalConstants::Pi;
+   outer_curvilinear_boundary_pt[3] =
+    new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
+                              zeta_end, nsegment, Outer_boundary3);
  
- // Combine
- TriangleMeshClosedCurve* outer_boundary_pt =
-  new TriangleMeshClosedCurve(outer_curvilinear_boundary_pt);
- 
- 
+   // Combine
+   outer_boundary_pt =
+    new TriangleMeshClosedCurve(outer_curvilinear_boundary_pt);
+   }
+
  
  
  //Create mesh parameters object
  TriangleMeshParameters mesh_parameters(outer_boundary_pt);
- 
-  // Element area
+
+ // Element area
  mesh_parameters.element_area() = Element_area;
  
  // Build an assign bulk mesh
@@ -1108,7 +1106,8 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
 
   
    // Let's have a look at the orig mesh
-   Bulk_mesh_pt->output("mesh_before_black_box_upgrade.dat");
+   Bulk_mesh_pt->output(Doc_info.directory()+
+                        "/mesh_before_black_box_upgrade.dat");
 
 
 
@@ -1151,15 +1150,15 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
 
    // Let's have a look what the black box helper function does:
    C1PlateHelper::Duplicated_node_output_stream.open
-    ("duplicated_nodes.dat");
+    (Doc_info.directory()+"duplicated_nodes.dat");
    C1PlateHelper::Upgraded_to_curved_edge_element_stream.open
-    ("elements_upgraded_to_curved.dat");
+    (Doc_info.directory()+"elements_upgraded_to_curved.dat");
    C1PlateHelper::Split_elements_output_stream.open
-    ("split_elements.dat");
+    (Doc_info.directory()+"split_elements.dat");
    C1PlateHelper::Rotated_node_output_stream.open
-    ("rotated_nodes.dat");
+    (Doc_info.directory()+"rotated_nodes.dat");
    C1PlateHelper::Rotated_element_output_stream.open
-    ("rotated_elements.dat");
+    (Doc_info.directory()+"rotated_elements.dat");
     
    // Rotate coordinates on curvilinear boundaries?
    C1PlateHelper::upgrade_triangle_mesh_for_c1_plate_bending<ELEMENT>(
@@ -1175,11 +1174,11 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
    C1PlateHelper::Rotated_node_output_stream.close();
    C1PlateHelper::Rotated_element_output_stream.close();
 
-   // Let's have a look at the new mesh
-   Bulk_mesh_pt->output("mesh_black_box_upgrade.dat");
-   doc_boundary_coords();
-   std::string name_prefix="test_";
-   doc_boundary_elements_and_faces(Bulk_mesh_pt,name_prefix);
+   // // Let's have a look at the new mesh
+   // Bulk_mesh_pt->output(Doc_info.directory()+"mesh_black_box_upgrade.dat");
+   // doc_boundary_coords();
+   // std::string name_prefix=Doc_info.directory()+"/test_";
+   // doc_boundary_elements_and_faces(Bulk_mesh_pt,name_prefix);
 
   }
 
@@ -1209,12 +1208,17 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
   
   // Assign equation numbers
   oomph_info << "Number of equations: "
-             << assign_eqn_numbers() << '\n';
+             << assign_eqn_numbers()
+             << "\n\n\n\n\n";
 
-  
-  // Set directory
-  Doc_info.set_directory("RESLT");
-
+  oomph_info << "Mesh built with";
+  if (!Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
+   {
+    oomph_info << "out (!)";
+   }
+  oomph_info << " rotating coordinates on curvilinear boundaries\n"
+             << " and square is rotated by angle " << phi
+             << std::endl << std::endl << std::endl;
 
   
 } // end Constructor
@@ -1252,24 +1256,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(bool steady)
    Bulk_mesh_pt->output(some_file ,Parameters::Nplot);
    some_file.close();
   }
-
-
-#ifndef USE_KS
- 
- // Full soln (apparently not implemented for KS; hierher add it)
- sprintf(filename,"%s/full_soln%i.dat",Doc_info.directory().c_str(),
-         Doc_info.number());
- some_file2.open(filename);
- unsigned nel=Bulk_mesh_pt->nelement();
- for (unsigned e=0;e<nel;e++)
-  {
-   dynamic_cast<ELEMENT*>(Bulk_mesh_pt->element_pt(e))->full_output(some_file2,Parameters::Nplot);
-  }
- some_file2.close();
-
- #endif
-
-
 
   // Increment the doc_info number
   Doc_info.number()++;
@@ -1755,25 +1741,25 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
     {
     case 3:
      test_point["e"].resize(3);
-     test_point["e"][0]={{0.5 ,0.25},{"w"}};
-     test_point["e"][1]={{0.25,0.5 },{"w"}};
-     test_point["e"][2]={{0.25,0.25},{"w"}};
+     test_point["e"][2]={{0.5 ,0.25},{"w"}};
+     test_point["e"][0]={{0.25,0.5 },{"w"}};
+     test_point["e"][1]={{0.25,0.25},{"w"}};
      
      break;
      
     case 10:
      test_point["e"].resize(10);
-     test_point["e"][0]={{1.0/6.0,4.0/6.0},{"w"}};
-     test_point["e"][1]={{1.0/6.0,3.0/6.0},{"w"}};
-     test_point["e"][2]={{1.0/6.0,2.0/6.0},{"w"}};
-     test_point["e"][3]={{1.0/6.0,1.0/6.0},{"w"}};
+     test_point["e"][6]={{1.0/6.0,4.0/6.0},{"w"}};
+     test_point["e"][7]={{1.0/6.0,3.0/6.0},{"w"}};
+     test_point["e"][8]={{1.0/6.0,2.0/6.0},{"w"}};
+     test_point["e"][0]={{1.0/6.0,1.0/6.0},{"w"}};
      
-     test_point["e"][4]={{2.0/6.0,1.0/6.0},{"w"}};
-     test_point["e"][5]={{3.0/6.0,1.0/6.0},{"w"}};
-     test_point["e"][6]={{4.0/6.0,1.0/6.0},{"w"}};
+     test_point["e"][1]={{2.0/6.0,1.0/6.0},{"w"}};
+     test_point["e"][2]={{3.0/6.0,1.0/6.0},{"w"}};
+     test_point["e"][3]={{4.0/6.0,1.0/6.0},{"w"}};
      
-     test_point["e"][7]={{3.0/6.0,2.0/6.0},{"w"}};
-     test_point["e"][8]={{2.0/6.0,3.0/6.0},{"w"}};
+     test_point["e"][4]={{3.0/6.0,2.0/6.0},{"w"}};
+     test_point["e"][5]={{2.0/6.0,3.0/6.0},{"w"}};
      
      test_point["e"][9]={{2.0/6.0,2.0/6.0},{"w"}};
      
@@ -1805,7 +1791,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
     }
    
    // output intermediate results to screen
-   bool output_to_screen=true;
+   bool output_to_screen=false;
    
    // Loop over the dofs
    unsigned interpolation_condition_count=0;
@@ -1818,6 +1804,21 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
       {
        oomph_info << std::fixed << std::setprecision(1);
       }
+
+
+
+
+     // TEST LOGIC:
+     //============
+     // - Rows of the test matrix loop over all interpolation conditions which specify
+     //   the location at which a certain condition (on the value of a basis function or
+     //   one of its derivatives being one for exactly one basis function and zero
+     //   for all the others) ought to be satisfied.
+     // - Columns of the test matrix, then loop over all basis functions and evaluated
+     //   the relevant value (value itself or the specified derivative at that point)
+     //   for all basis functions in the element.
+     // If all goes well, the matrix therefore ought to be a unit matrix.
+     
      
      // Loop over location of all dof locations of this class (a1,a2,a3,...)
      // dof_class.second is a vector containing the pairs of location and
@@ -1860,34 +1861,34 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        
        
        // Move across into 1D enumeration:
-       unsigned count=0;
+       unsigned counter=0;
        
        // Nodal first...
        for (unsigned j=0;j<n_w_node;j++)
         {
          for (unsigned k=0;k<n_w_nodal_type;k++)
           {
-           psi(count)=psi_n_w(j,k);
-           dpsi(count,0)=dpsi_n_wdxi(j,k,0);
-           dpsi(count,1)=dpsi_n_wdxi(j,k,1);
-           d2psi(count,0)=d2psi_n_wdxi2(j,k,0);
-           d2psi(count,1)=d2psi_n_wdxi2(j,k,1);
-           d2psi(count,2)=d2psi_n_wdxi2(j,k,2);
-           count++;
+           psi(counter)=psi_n_w(j,k);
+           dpsi(counter,0)=dpsi_n_wdxi(j,k,0);
+           dpsi(counter,1)=dpsi_n_wdxi(j,k,1);
+           d2psi(counter,0)=d2psi_n_wdxi2(j,k,0);
+           d2psi(counter,1)=d2psi_n_wdxi2(j,k,1);
+           d2psi(counter,2)=d2psi_n_wdxi2(j,k,2);
+           counter++;
           }
         }
        // then the internal (bubble) ones:
        for (unsigned j=0;j<n_w_internal_type;j++)
         {
-         psi(count)=psi_i_w(j);
-         dpsi(count,0)=dpsi_i_wdxi(j,0);
-         dpsi(count,1)=dpsi_i_wdxi(j,1);
-         d2psi(count,0)=d2psi_i_wdxi2(j,0);
-         d2psi(count,1)=d2psi_i_wdxi2(j,1);
-         d2psi(count,2)=d2psi_i_wdxi2(j,2);
-         count++;
+         psi(counter)=psi_i_w(j);
+         dpsi(counter,0)=dpsi_i_wdxi(j,0);
+         dpsi(counter,1)=dpsi_i_wdxi(j,1);
+         d2psi(counter,0)=d2psi_i_wdxi2(j,0);
+         d2psi(counter,1)=d2psi_i_wdxi2(j,1);
+         d2psi(counter,2)=d2psi_i_wdxi2(j,2);
+         counter++;
         }
-       
+
        
        // Loop over test types: dof_location_and_tests.second
        // is the vector whose strings tell us what quantity
@@ -1921,35 +1922,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
             {
              test_matrix(interpolation_condition_count,i)=dpsi(i,1);
              if (output_to_screen) oomph_info << dpsi(i,1) << " ";
-            }
-          }
-         else if (test_type=="-dwdx")
-          {
-           for (unsigned i=0;i<n_interpolation_test;i++)
-            {
-             test_matrix(interpolation_condition_count,i)=-dpsi(i,0);
-             if (output_to_screen) oomph_info << -dpsi(i,0) << " ";
-            }
-          }
-         else if (test_type=="-dwdy")
-          {
-           for (unsigned i=0;i<n_interpolation_test;i++)
-            {
-             test_matrix(interpolation_condition_count,i)=-dpsi(i,1);
-             if (output_to_screen) oomph_info << -dpsi(i,1) << " ";
-            }
-          }
-         else if (test_type=="dwdn")
-          {
-           for (unsigned i=0;i<n_interpolation_test;i++)
-            {
-             test_matrix(interpolation_condition_count,i)=
-              1.0/sqrt(2.0)*(dpsi(i,0)+dpsi(i,1));
-             if (output_to_screen)
-              {
-               oomph_info << 1.0/sqrt(2.0)*(dpsi(i,0)+dpsi(i,1))
-                          << " ";
-              }
             }
           }
          else if (test_type=="d2wdx2")
@@ -1994,7 +1966,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
         }
        count++;
        
-       
       }
     }
    if (plot_em)
@@ -2003,42 +1974,86 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
     }
    
    // Test: exactly one unit entry per row
+   std::stringstream row_unit_ness_stream;
+   std::stringstream col_unit_ness_stream;
    double tol=1.0e-10;
    bool test_passed=true;
    for (unsigned i=0;i<n_interpolation_test;i++)
     {
      unsigned count_one_in_row=0;
-     unsigned count_zero_in_row=0;
+     unsigned count_non_one_in_row=0;
      unsigned count_one_in_col=0;
-     unsigned count_zero_in_col=0;
+     unsigned count_non_one_in_col=0;
      for (unsigned j=0;j<n_interpolation_test;j++)
       {
-       if (std::abs(test_matrix(i,j)    )<tol) count_zero_in_row++;
-       if (std::abs(test_matrix(i,j)-1.0)<tol) count_one_in_row++;
-       if (std::abs(test_matrix(j,i)    )<tol) count_zero_in_col++;
-       if (std::abs(test_matrix(j,i)-1.0)<tol) count_one_in_col++;
+       if (std::abs(test_matrix(i,j)    )<tol) count_non_one_in_row++;
+       if (std::abs(test_matrix(i,j)-1.0)<tol)
+        {
+         count_one_in_row++;
+         row_unit_ness_stream << "Unit entry in row " << i << " is ";
+         if (i==j)
+          {
+           row_unit_ness_stream << " on diagonal" << std::endl;
+          }
+         else
+          {
+           row_unit_ness_stream << " off diagonal, namely in column "
+                      << j << std::endl;
+          }
+          
+        }
+       if (std::abs(test_matrix(j,i)    )<tol) count_non_one_in_col++;
+       if (std::abs(test_matrix(j,i)-1.0)<tol)
+        {
+         count_one_in_col++;         
+         col_unit_ness_stream << "Unit entry in column " << j << " is ";
+         if (i==j)
+          {
+           col_unit_ness_stream << " on diagonal" << std::endl;
+          }
+         else
+          {
+           col_unit_ness_stream << " off diagonal, namely in row "
+                                << i << std::endl;
+          }
+        }
+
       }
+
+     std::stringstream diagnostic;
+     diagnostic << "Row "
+                 << i << " has "
+                 << count_one_in_row << " ones (should be 1) and "
+                 << count_non_one_in_row << " non-ones (should be "
+                 << n_interpolation_test-1 << ") "
+                 << std::endl;
      
      if ((count_one_in_row!=1)||
          (count_one_in_col!=1)||
-         (count_zero_in_row!=(n_interpolation_test-1))||
-         (count_zero_in_col!=(n_interpolation_test-1)))
+         (count_non_one_in_row!=(n_interpolation_test-1))||
+         (count_non_one_in_col!=(n_interpolation_test-1)))
       {
        test_passed=false;
-       oomph_info << "Test failed: row/col test: "
-                  << i << ": "
-                  <<  count_one_in_row << " "
-                  <<  count_zero_in_row << " "
-                  <<  count_one_in_col << " "
-                  <<  count_zero_in_col << " "
-                  << std::endl;
-       break;
+       oomph_info << "failed: " << diagnostic.str();
+      }
+     else
+      {
+       oomph_info << "passed: " << diagnostic.str();
       }
     }
+
+
+   oomph_info << row_unit_ness_stream.str() << std::endl << std::endl;
+   oomph_info << col_unit_ness_stream.str() << std::endl << std::endl;
    
    if (test_passed)
     {
      oomph_info << "Test of curved bell basis functions passed!"
+                << std::endl;
+    }
+   else
+    {
+     oomph_info << "Test of curved bell basis functions failed!"
                 << std::endl;
     }
    
@@ -2255,20 +2270,23 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
 
 
 
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
 
 
 
 //========================================================================
 /// Validate mapping from monomials to 36 [66] basic dofs
 //========================================================================
-template<class ELEMENT>
 template<unsigned M>
-void UnstructuredC1PlateProblem<ELEMENT>::
-validate_monomials_to_basic_basis_functions(const std::string&
-                                            dir_name_for_output)
+void validate_monomials_to_basic_basis_functions(const std::string&
+                                                 dir_name_for_output="")
 {
 
 
+ oomph_info << "\n\n\nTesting Bernadou basic basis functions for M = " << M << "\n"
+            << "==================================================" << std::endl;
 
  // Make Bernadou element
  BernadouElementBasis<M>* b_pt=new BernadouElementBasis<M>;
@@ -2279,8 +2297,6 @@ validate_monomials_to_basic_basis_functions(const std::string&
  
  ofstream some_file;
  char filename[100];
-
- 
  
  // "Points" where interpolation property ought to be satisfied:
  std::map<std::string, // type of interpolation (a,b,...)
@@ -2532,45 +2548,91 @@ if (plot_em)
   some_file.close();
  }
 
- // Test: exactly one unit entry per row
+// Test: exactly one unit entry per row
+unsigned n_interpolation_test=n_basic;
+std::stringstream row_unit_ness_stream;
+std::stringstream col_unit_ness_stream;
 double tol=1.0e-10;
 bool test_passed=true;
- for (unsigned i=0;i<n_basic;i++)
-  {
-   unsigned count_one_in_row=0;
-   unsigned count_zero_in_row=0;
-   unsigned count_one_in_col=0;
-   unsigned count_zero_in_col=0;
-   for (unsigned j=0;j<n_basic;j++)
-    {
-     if (std::abs(test_matrix(i,j)    )<tol) count_zero_in_row++;
-     if (std::abs(test_matrix(i,j)-1.0)<tol) count_one_in_row++;
-     if (std::abs(test_matrix(j,i)    )<tol) count_zero_in_col++;
-     if (std::abs(test_matrix(j,i)-1.0)<tol) count_one_in_col++;
-    }
-   
-   if ((count_one_in_row!=1)||
-       (count_one_in_col!=1)||
-       (count_zero_in_row!=(n_basic-1))||
-       (count_zero_in_col!=(n_basic-1)))
-    {
-     test_passed=false;
-     oomph_info << "Test failed: row/col test: "
-                << i << ": "
-                <<  count_one_in_row << " "
-                <<  count_zero_in_row << " "
-                <<  count_one_in_col << " "
-                <<  count_zero_in_col << " "
-                << std::endl;
-     break;
-    }
-  }
+for (unsigned i=0;i<n_interpolation_test;i++)
+ {
+  unsigned count_one_in_row=0;
+  unsigned count_non_one_in_row=0;
+  unsigned count_one_in_col=0;
+  unsigned count_non_one_in_col=0;
+  for (unsigned j=0;j<n_interpolation_test;j++)
+   {
+    if (std::abs(test_matrix(i,j)    )<tol) count_non_one_in_row++;
+    if (std::abs(test_matrix(i,j)-1.0)<tol)
+     {
+      count_one_in_row++;
+      row_unit_ness_stream << "Unit entry in row " << i << " is ";
+      if (i==j)
+       {
+        row_unit_ness_stream << " on diagonal" << std::endl;
+       }
+      else
+       {
+        row_unit_ness_stream << " off diagonal, namely in column "
+                             << j << std::endl;
+       }
+          
+     }
+    if (std::abs(test_matrix(j,i)    )<tol) count_non_one_in_col++;
+    if (std::abs(test_matrix(j,i)-1.0)<tol)
+     {
+      count_one_in_col++;         
+      col_unit_ness_stream << "Unit entry in column " << j << " is ";
+      if (i==j)
+       {
+        col_unit_ness_stream << " on diagonal" << std::endl;
+       }
+      else
+       {
+        col_unit_ness_stream << " off diagonal, namely in row "
+                             << i << std::endl;
+       }
+     }
 
+   }
+
+  std::stringstream diagnostic;
+  diagnostic << "Row "
+             << i << " has "
+             << count_one_in_row << " ones (should be 1) and "
+             << count_non_one_in_row << " non-ones (should be "
+             << n_interpolation_test-1 << ") "
+             << std::endl;
+     
+  if ((count_one_in_row!=1)||
+      (count_one_in_col!=1)||
+      (count_non_one_in_row!=(n_interpolation_test-1))||
+      (count_non_one_in_col!=(n_interpolation_test-1)))
+   {
+    test_passed=false;
+    oomph_info << "failed: " << diagnostic.str();
+   }
+  else
+   {
+    oomph_info << "passed: " << diagnostic.str();
+   }
+ }
+
+
+oomph_info << row_unit_ness_stream.str() << std::endl << std::endl;
+oomph_info << col_unit_ness_stream.str() << std::endl << std::endl;
+   
 if (test_passed)
  {
   oomph_info << "Test of basic basis functions passed!"
              << std::endl;
  }
+else
+ {
+  oomph_info << "Test of basic basis functions failed!"
+             << std::endl;
+ }
+ 
 
 
 // Plot all basis functions
@@ -2635,10 +2697,42 @@ if (plot_em)
 
 
 
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
 
+
+// Run problem with specified boundary order, for square domain (if bool is true)
+// and rotation angle (only used for square domain)
+void problem_level_test(const unsigned& boundary_order,
+                        bool use_square_domain,
+                        const double& phi)
+{
+ 
+ 
+ // (only used for non-square domain)
+ unsigned m_poly_actual_boundary=5;
+ 
+ // Build problem  
+ UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
+  Parameters::Element_area,m_poly_actual_boundary,boundary_order,
+  use_square_domain, phi);
+  
+ 
+ // Document the initial state
+ problem.doc_solution();
+ 
+ // Test curved Bell
+ std::string dir_name="RESLT"; // hierher incorporate rotation
+ problem.validate_curved_bell_and_bubble_basis_functions(dir_name);
+ 
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
 
  
-
 
 //=======start_of_main========================================
 ///Driver code 
@@ -2655,9 +2749,44 @@ int main(int argc, char** argv)
   CommandLineArgs::parse_and_assign();
 
   // Doc what has actually been specified on the command line
-  CommandLineArgs::doc_specified_flags();
+  //CommandLineArgs::doc_specified_flags();
 
 
+
+  // Test 1: From the very bottom: Monomials are OK
+  validate_monomials_to_basic_basis_functions<5>();
+  validate_monomials_to_basic_basis_functions<3>();
+
+
+  // Loop over boundary order
+  for (unsigned b=3;b<6;b+=2)
+   {
+    // Loop over angle
+    double phi=0.0;
+    for (unsigned i_angle=0;i_angle<2;i_angle++)
+     {
+      // Loop over rotate dofs
+      for (unsigned rotate=0;rotate<2;rotate++)
+       {
+        if (rotate==1)
+         {
+          Parameters::Rotate_coordinates_on_all_curvilinear_boundaries=true;
+         }
+        else
+         {
+          Parameters::Rotate_coordinates_on_all_curvilinear_boundaries=false;
+         }
+         
+        
+        bool use_square_domain=true;      
+        problem_level_test(b,
+                           use_square_domain,
+                           phi);
+       }
+     }
+   }
+  
+       
 
   // // Test 3: From the very top: interpolated_x
   // {
@@ -2688,36 +2817,5 @@ int main(int argc, char** argv)
        
   //  exit(0);
   // }
-   
-#ifdef USE_KS
-  
-  // Create the problem, using FvK elements derived from TElement<2,4>
-  // elements (with 4 nodes per element edge and 10 nodes overall).
-  UnstructuredC1PlateProblem<KoiterSteigmannC1CurvableBellElement>
-    problem(Parameters::Element_area);
-
-#else
-
-  // Build problem
-  unsigned m_poly_actual_boundary=5;
-  unsigned boundary_order=5;
-  UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
-   Parameters::Element_area,m_poly_actual_boundary,boundary_order);
-
-#endif
-
-
-  // Test 1: From the very bottom: Monomials are OK
-  problem.validate_monomials_to_basic_basis_functions<5>();
-  problem.validate_monomials_to_basic_basis_functions<3>();
-
-
-  // Document the initial state
-  problem.doc_solution();
-
-  // // Test 2: From the very top: curved bell basis are not OK
-  std::string dir_name="RESLT";
-  problem.validate_curved_bell_and_bubble_basis_functions(dir_name);
-  
 
 } // End of main
