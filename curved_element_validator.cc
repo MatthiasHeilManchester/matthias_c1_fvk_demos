@@ -29,6 +29,7 @@
 //LIC//====================================================================
 #include <fenv.h>
 
+#include<format>
 #include <random>
 
 //Generic routines
@@ -45,7 +46,13 @@ using namespace std;
 using namespace oomph;
 using MathematicalConstants::Pi;
 
-
+#define BLUE        "\033[34m"
+#define BOLD_BLUE   "\033[1;34m"
+#define BOLD_GREEN "\033[1;32m"
+#define BOLD_RED   "\033[1;31m"
+#define RED     "\033[31m"
+#define GREEN   "\033[32m"
+#define RESET   "\033[0m"
 
 // Random number between 0 and 1
 namespace Random
@@ -734,12 +741,10 @@ public:
 
 
  /// Validate all basis functions for curved bell
- void validate_curved_bell_and_bubble_basis_functions(const std::string&
-                                                      dir_name_for_output);
+ void validate_curved_bell_and_bubble_basis_functions();
  
  /// Plot all basis functions for curved bell
- void plot_curved_bell_and_bubble_basis_functions(const std::string&
-                                                  dir_name_for_output);
+ void plot_curved_bell_and_bubble_basis_functions();
  
 
  /// Validate interpolated_x
@@ -950,10 +955,23 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
  const double& phi)
  : Element_area(element_area)
 {
- 
+
+ std::string rotate_string="_unrotated_coordinates";
+ if (Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
+  {
+   rotate_string="_rotated_coordinates";
+  }
+ std::stringstream dir_name;
+ dir_name << "RESLT_boundary_order"
+          << to_string(boundary_order)
+          << "_phi" << std::fixed << std::setprecision(1) << phi
+          << rotate_string;
+
+ oomph_info << "Writing results to : " << dir_name.str() << std::endl;
  
  // Set directory
- Doc_info.set_directory("RESLT");
+ Doc_info.set_directory(dir_name.str());
+
 
  
  // Build the mesh
@@ -1105,41 +1123,9 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
   {
 
   
-   // Let's have a look at the orig mesh
-   Bulk_mesh_pt->output(Doc_info.directory()+
-                        "/mesh_before_black_box_upgrade.dat");
-
-
-
-
-   // // hierher test what element splitting does ad confirm that it updates
-   // the boundary lookup scheme
-   // {
-   //  // Let's have a look at the new mesh
-   //  Bulk_mesh_pt->output("mesh_before_splitting.dat");
-   //  doc_boundary_coords();
-   //  std::string name_prefix="test_before_splitting_";
-   //  doc_boundary_elements_and_faces(Bulk_mesh_pt,name_prefix);
-
-   //  // Split elements that have multiple edges on a boundary
-   //  // Note: Sets up the boundary loopup scheme too.
-   //  Bulk_mesh_pt->
-   //   template split_elements_with_multiple_boundary_edges<ELEMENT>();
-   //  // (Split_elements_output_stream);
-    
-    
-    
-   //  // Let's have a look at the new mesh
-   //  Bulk_mesh_pt->output("mesh_after_splitting.dat");
-   //  doc_boundary_coords();
-   //  name_prefix="test_after_splitting_";
-   //  doc_boundary_elements_and_faces(Bulk_mesh_pt,name_prefix);
-
-   // }
-
-
-
-
+   // // Let's have a look at the orig mesh
+   // Bulk_mesh_pt->output(Doc_info.directory()+
+   //                      "/mesh_before_black_box_upgrade.dat");
 
    
    // Create the mesh for the Lagrange multiplier elements that enforce
@@ -1150,15 +1136,15 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
 
    // Let's have a look what the black box helper function does:
    C1PlateHelper::Duplicated_node_output_stream.open
-    (Doc_info.directory()+"duplicated_nodes.dat");
+    (Doc_info.directory()+"/duplicated_nodes.dat");
    C1PlateHelper::Upgraded_to_curved_edge_element_stream.open
-    (Doc_info.directory()+"elements_upgraded_to_curved.dat");
+    (Doc_info.directory()+"/elements_upgraded_to_curved.dat");
    C1PlateHelper::Split_elements_output_stream.open
-    (Doc_info.directory()+"split_elements.dat");
+    (Doc_info.directory()+"/split_elements.dat");
    C1PlateHelper::Rotated_node_output_stream.open
-    (Doc_info.directory()+"rotated_nodes.dat");
+    (Doc_info.directory()+"/rotated_nodes.dat");
    C1PlateHelper::Rotated_element_output_stream.open
-    (Doc_info.directory()+"rotated_elements.dat");
+    (Doc_info.directory()+"/rotated_elements.dat");
     
    // Rotate coordinates on curvilinear boundaries?
    C1PlateHelper::upgrade_triangle_mesh_for_c1_plate_bending<ELEMENT>(
@@ -1207,18 +1193,19 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
    }
   
   // Assign equation numbers
-  oomph_info << "Number of equations: "
-             << assign_eqn_numbers()
-             << "\n\n\n\n\n";
+  assign_eqn_numbers();
+  // oomph_info << "Number of equations: "
+  //            << assign_eqn_numbers()
+  //            << "\n\n\n\n\n";
 
-  oomph_info << "Mesh built with";
-  if (!Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
-   {
-    oomph_info << "out (!)";
-   }
-  oomph_info << " rotating coordinates on curvilinear boundaries\n"
-             << " and square is rotated by angle " << phi
-             << std::endl << std::endl << std::endl;
+  // oomph_info << "Mesh built with";
+  // if (!Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
+  //  {
+  //   oomph_info << "out (!)";
+  //  }
+  // oomph_info << " rotating coordinates on curvilinear boundaries\n"
+  //            << " and square is rotated by angle " << phi
+  //            << std::endl << std::endl << std::endl;
 
   
 } // end Constructor
@@ -1239,27 +1226,15 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(bool steady)
  ofstream some_file,some_file2;
  char filename[100];
  
-
- oomph_info << "Docing soln" << Doc_info.number()  << ".dat" << std::endl;
- 
  sprintf(filename,"%s/soln%i.dat",Doc_info.directory().c_str(),
          Doc_info.number());
  some_file.open(filename);
  Bulk_mesh_pt->output(some_file ,Parameters::Nplot);
  some_file.close();
-
- if (steady)
-  {
-   sprintf(filename,"%s/steady_soln%i.dat",Doc_info.directory().c_str(),
-           Doc_info.number());
-   some_file.open(filename);
-   Bulk_mesh_pt->output(some_file ,Parameters::Nplot);
-   some_file.close();
-  }
-
-  // Increment the doc_info number
-  Doc_info.number()++;
-
+ 
+ // Increment the doc_info number
+ Doc_info.number()++;
+ 
 } // end of doc
 
 
@@ -1268,8 +1243,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::doc_solution(bool steady)
 /// Plot all basis functions for curved bell
 //========================================================================
 template<class ELEMENT>
-void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_functions(
- const std::string& dir_name_for_output)
+void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_functions()
 {
 
  ofstream some_file;
@@ -1277,7 +1251,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_func
  
 // Test & plot 'em
  bool plot_em=true;
- if (dir_name_for_output=="") plot_em=false;
+ std::string dir_name_for_output=Doc_info.directory();
  
  // Find a curved element on the outer boundary
  unsigned b=Outer_boundary0;
@@ -1524,11 +1498,17 @@ void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_func
                                        <<  drdzeta[1]/norm << " " // 5 
                                        << -drdzeta[0]/norm << " " // 6
                                        << s << " "  // 7
-                                       << psi_n_w(j,k) << " " // 8
-                                       << dpsi_n_wdxi(j,k,0) << " " // 9 (d/dn because we're rotated!)
-                                       // << (  dpsi_n_wdxi(j,k,0)*drdzeta[1]
-                                       //      -dpsi_n_wdxi(j,k,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
-                                       << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
+                                       << psi_n_w(j,k) << " "; // 8
+               if (Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
+                {
+                 *(nodal_file_pt[count]) << dpsi_n_wdxi(j,k,0) << " "; // 9 (d/dn because we're rotated!)
+                }
+               else
+                {
+                 *(nodal_file_pt[count]) << (  dpsi_n_wdxi(j,k,0)*drdzeta[1]
+                                               -dpsi_n_wdxi(j,k,1)*drdzeta[0])/norm << " "; // 9 (dpsi/dn)
+                }
+               *(nodal_file_pt[count]) << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
                                        << s - 2.0*s*s + s*s*s << " " // 11
                                        << 3.0*s*s - 2.0*s*s*s << " " // 12
                                        << -s*s + s*s*s << " " // 13
@@ -1561,25 +1541,30 @@ void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_func
              double norm=sqrt(drdzeta[0]*drdzeta[0]+
                               drdzeta[1]*drdzeta[1]);
              double s=s_plot[1];             
-              *(internal_file_pt[count])  << interp_x[0] << " " // 1
-                                       << interp_x[1] << " " // 2
-                                       << r_from_boundary[0] << " " // 3 
-                                       << r_from_boundary[1] << " " // 4
-                                       <<  drdzeta[1]/norm << " " // 5 
-                                       << -drdzeta[0]/norm << " " // 6
-                                       << s << " "  // 7
-                                       << psi_i_w(k_type) << " " // 8
-                                          << dpsi_i_wdxi(k_type,0) << " " // 9 (d/dn because we're rotated!)
-                                       // << (  dpsi_i_wdxi(k_type,0)*drdzeta[1]
-                                       //      -dpsi_i_wdxi(k_type,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
-                                       << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
-                                       << s - 2.0*s*s + s*s*s << " " // 11
-                                       << 3.0*s*s - 2.0*s*s*s << " " // 12
-                                       << -s*s + s*s*s << " " // 13
-                                       << std::endl;
+             *(internal_file_pt[count])  << interp_x[0] << " " // 1
+                                         << interp_x[1] << " " // 2
+                                         << r_from_boundary[0] << " " // 3 
+                                         << r_from_boundary[1] << " " // 4
+                                         <<  drdzeta[1]/norm << " " // 5 
+                                         << -drdzeta[0]/norm << " " // 6
+                                         << s << " "  // 7
+                                         << psi_i_w(k_type) << " "; // 8
+             if (Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
+              {
+               *(nodal_file_pt[count]) << dpsi_i_wdxi(k_type,0) << " "; // 9 (d/dn because we're rotated!)
+              }
+             else
+              {
+               *(nodal_file_pt[count]) << (   dpsi_i_wdxi(k_type,0)*drdzeta[1]
+                                              -dpsi_i_wdxi(k_type,1)*drdzeta[0])/norm << " "; // 9 (dpsi/dn)
+              }
+             *(nodal_file_pt[count]) << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
+                                     << s - 2.0*s*s + s*s*s << " " // 11
+                                     << 3.0*s*s - 2.0*s*s*s << " " // 12
+                                     << -s*s + s*s*s << " " // 13
+                                     << std::endl;
             }
-  
-           count++;
+             count++;
           }
         }
 
@@ -1634,8 +1619,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_func
 /// Validate all basis functions for curved bell
 //========================================================================
 template<class ELEMENT>
-void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_functions(
- const std::string& dir_name_for_output)
+void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_functions()
 {
  
  ofstream some_file;
@@ -1643,7 +1627,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
  
 // Test & plot 'em
  bool plot_em=true;
- if (dir_name_for_output=="") plot_em=false;
+ std::string dir_name_for_output=Doc_info.directory();
  
  // Find a curved element on the outer boundary
  unsigned b=Outer_boundary0;
@@ -1741,25 +1725,25 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
     {
     case 3:
      test_point["e"].resize(3);
-     test_point["e"][2]={{0.5 ,0.25},{"w"}};
-     test_point["e"][0]={{0.25,0.5 },{"w"}};
-     test_point["e"][1]={{0.25,0.25},{"w"}};
+     test_point["e"][1]={{0.5 ,0.25},{"w"}};
+     test_point["e"][2]={{0.25,0.5 },{"w"}};
+     test_point["e"][0]={{0.25,0.25},{"w"}};
      
      break;
      
     case 10:
      test_point["e"].resize(10);
-     test_point["e"][6]={{1.0/6.0,4.0/6.0},{"w"}};
-     test_point["e"][7]={{1.0/6.0,3.0/6.0},{"w"}};
-     test_point["e"][8]={{1.0/6.0,2.0/6.0},{"w"}};
-     test_point["e"][0]={{1.0/6.0,1.0/6.0},{"w"}};
+     test_point["e"][3]={{1.0/6.0,4.0/6.0},{"w"}};
+     test_point["e"][4]={{1.0/6.0,3.0/6.0},{"w"}};
+     test_point["e"][5]={{1.0/6.0,2.0/6.0},{"w"}};
+     test_point["e"][6]={{1.0/6.0,1.0/6.0},{"w"}};
      
-     test_point["e"][1]={{2.0/6.0,1.0/6.0},{"w"}};
-     test_point["e"][2]={{3.0/6.0,1.0/6.0},{"w"}};
-     test_point["e"][3]={{4.0/6.0,1.0/6.0},{"w"}};
+     test_point["e"][7]={{2.0/6.0,1.0/6.0},{"w"}};
+     test_point["e"][8]={{3.0/6.0,1.0/6.0},{"w"}};
+     test_point["e"][0]={{4.0/6.0,1.0/6.0},{"w"}};
      
-     test_point["e"][4]={{3.0/6.0,2.0/6.0},{"w"}};
-     test_point["e"][5]={{2.0/6.0,3.0/6.0},{"w"}};
+     test_point["e"][1]={{3.0/6.0,2.0/6.0},{"w"}};
+     test_point["e"][2]={{2.0/6.0,3.0/6.0},{"w"}};
      
      test_point["e"][9]={{2.0/6.0,2.0/6.0},{"w"}};
      
@@ -1782,7 +1766,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    
    // Test & plot 'em
    bool plot_em=true;
-   if (dir_name_for_output=="") plot_em=false;
+   std::string dir_name_for_output=Doc_info.directory();
    if (plot_em)
     {
      sprintf(filename,"%s/curved_bell_test_points.dat",
@@ -1978,6 +1962,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    std::stringstream col_unit_ness_stream;
    double tol=1.0e-10;
    bool test_passed=true;
+   bool have_nonzero_off_diagonals=false;
    for (unsigned i=0;i<n_interpolation_test;i++)
     {
      unsigned count_one_in_row=0;
@@ -1997,8 +1982,9 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
           }
          else
           {
-           row_unit_ness_stream << " off diagonal, namely in column "
-                      << j << std::endl;
+           have_nonzero_off_diagonals=true;
+           row_unit_ness_stream << RED << " off diagonal, namely in column "
+                                << RESET << j << std::endl;
           }
           
         }
@@ -2013,8 +1999,9 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
           }
          else
           {
-           col_unit_ness_stream << " off diagonal, namely in row "
-                                << i << std::endl;
+           have_nonzero_off_diagonals=true;
+           col_unit_ness_stream << RED << " off diagonal, namely in row "
+                                << RESET << i << std::endl;
           }
         }
 
@@ -2034,27 +2021,38 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
          (count_non_one_in_col!=(n_interpolation_test-1)))
       {
        test_passed=false;
-       oomph_info << "failed: " << diagnostic.str();
+       oomph_info << BOLD_RED <<  "failed: " << RESET << diagnostic.str();
       }
      else
       {
-       oomph_info << "passed: " << diagnostic.str();
+       oomph_info << BOLD_GREEN << "passed: " << RESET << diagnostic.str();
       }
     }
 
-
-   oomph_info << row_unit_ness_stream.str() << std::endl << std::endl;
-   oomph_info << col_unit_ness_stream.str() << std::endl << std::endl;
-   
    if (test_passed)
     {
-     oomph_info << "Test of curved bell basis functions passed!"
-                << std::endl;
+     oomph_info << BOLD_GREEN << "Test of curved bell basis functions passed!"
+                << RESET << std::endl;
     }
    else
     {
-     oomph_info << "Test of curved bell basis functions failed!"
-                << std::endl;
+     oomph_info << BOLD_RED << "Test of curved bell basis functions failed!"
+                << RESET << std::endl;
+    }
+   
+   if (have_nonzero_off_diagonals)
+    {
+     oomph_info << RED << "Error in enumeration of basis functions:"
+                << RESET << std::endl;
+     oomph_info << row_unit_ness_stream.str() << std::endl << std::endl;
+     oomph_info << col_unit_ness_stream.str() << std::endl << std::endl;
+    }
+   else
+    {
+     oomph_info
+      << BOLD_GREEN
+      << "No off-diagonals in test matrix: basis fcts enumerated consistently"
+      << RESET << std::endl;
     }
    
    
@@ -2285,8 +2283,9 @@ void validate_monomials_to_basic_basis_functions(const std::string&
 {
 
 
- oomph_info << "\n\n\nTesting Bernadou basic basis functions for M = " << M << "\n"
-            << "==================================================" << std::endl;
+ oomph_info
+  << BOLD_BLUE << "\n\n\nTesting Bernadou basic basis functions for M = " << M << "\n"
+  << "==================================================" << RESET << std::endl;
 
  // Make Bernadou element
  BernadouElementBasis<M>* b_pt=new BernadouElementBasis<M>;
@@ -2554,6 +2553,7 @@ std::stringstream row_unit_ness_stream;
 std::stringstream col_unit_ness_stream;
 double tol=1.0e-10;
 bool test_passed=true;
+bool have_nonzero_off_diagonals=false;
 for (unsigned i=0;i<n_interpolation_test;i++)
  {
   unsigned count_one_in_row=0;
@@ -2573,8 +2573,9 @@ for (unsigned i=0;i<n_interpolation_test;i++)
        }
       else
        {
-        row_unit_ness_stream << " off diagonal, namely in column "
-                             << j << std::endl;
+        have_nonzero_off_diagonals=true;
+        row_unit_ness_stream << RED << " off diagonal, namely in column "
+                             << RESET << j << std::endl;
        }
           
      }
@@ -2589,8 +2590,9 @@ for (unsigned i=0;i<n_interpolation_test;i++)
        }
       else
        {
-        col_unit_ness_stream << " off diagonal, namely in row "
-                             << i << std::endl;
+        have_nonzero_off_diagonals=true;
+        col_unit_ness_stream << RED << " off diagonal, namely in row "
+                             << RESET << i << std::endl;
        }
      }
 
@@ -2610,27 +2612,37 @@ for (unsigned i=0;i<n_interpolation_test;i++)
       (count_non_one_in_col!=(n_interpolation_test-1)))
    {
     test_passed=false;
-    oomph_info << "failed: " << diagnostic.str();
+    oomph_info << BOLD_RED << "failed: " << RESET << diagnostic.str();
    }
   else
    {
-    oomph_info << "passed: " << diagnostic.str();
+    oomph_info << BOLD_GREEN << "passed: " << RESET << diagnostic.str();
    }
  }
 
-
-oomph_info << row_unit_ness_stream.str() << std::endl << std::endl;
-oomph_info << col_unit_ness_stream.str() << std::endl << std::endl;
-   
 if (test_passed)
  {
-  oomph_info << "Test of basic basis functions passed!"
-             << std::endl;
+  oomph_info << BOLD_GREEN << "Test of basic basis functions passed!"
+             << RESET << std::endl;
  }
 else
  {
-  oomph_info << "Test of basic basis functions failed!"
-             << std::endl;
+  oomph_info << BOLD_RED << "Test of basic basis functions failed!"
+             << RESET << std::endl;
+ }
+
+if (have_nonzero_off_diagonals)
+ {
+  oomph_info << RED << "Error in enumeration of basis functions:"
+             << RESET << std::endl;
+  oomph_info << row_unit_ness_stream.str() << std::endl << std::endl;
+  oomph_info << col_unit_ness_stream.str() << std::endl << std::endl;
+ }
+else
+ {
+  oomph_info << GREEN
+   << "No off-diagonals in test matrix: basis fcts enumerated consistently"
+             << RESET << std::endl;
  }
  
 
@@ -2712,7 +2724,7 @@ void problem_level_test(const unsigned& boundary_order,
  
  // (only used for non-square domain)
  unsigned m_poly_actual_boundary=5;
- 
+  
  // Build problem  
  UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
   Parameters::Element_area,m_poly_actual_boundary,boundary_order,
@@ -2723,9 +2735,9 @@ void problem_level_test(const unsigned& boundary_order,
  problem.doc_solution();
  
  // Test curved Bell
- std::string dir_name="RESLT"; // hierher incorporate rotation
- problem.validate_curved_bell_and_bubble_basis_functions(dir_name);
- 
+ problem.plot_curved_bell_and_bubble_basis_functions();
+ problem.validate_curved_bell_and_bubble_basis_functions();
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -2762,22 +2774,36 @@ int main(int argc, char** argv)
   for (unsigned b=3;b<6;b+=2)
    {
     // Loop over angle
-    double phi=0.0;
+    double d_phi=0.3;
+    double phi=-d_phi;
     for (unsigned i_angle=0;i_angle<2;i_angle++)
      {
+      phi+=d_phi;
+      
       // Loop over rotate dofs
       for (unsigned rotate=0;rotate<2;rotate++)
        {
+
+        oomph_info
+         << BOLD_BLUE
+         << "\n\nValidating curved Bell for boundary order " << b << " "
+         << "rotation angle " << phi << " ";
+        
         if (rotate==1)
          {
+          oomph_info << "with rotated coordinates on boundaries ";
           Parameters::Rotate_coordinates_on_all_curvilinear_boundaries=true;
          }
         else
          {
+          oomph_info << "without rotated coordinates on boundaries ";
           Parameters::Rotate_coordinates_on_all_curvilinear_boundaries=false;
          }
+        oomph_info
+         << "\n======================================================"
+         << "==================================================="
+         << RESET << std::endl;
          
-        
         bool use_square_domain=true;      
         problem_level_test(b,
                            use_square_domain,

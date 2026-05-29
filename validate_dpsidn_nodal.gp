@@ -2,7 +2,8 @@ reset
 set terminal pngcairo size 2400,1200   # or 'wxt' for interactive window
 set output 'validate_dpsi_dn_nodal.png'           # optional
 
-set multiplot layout 3,6 title "test_curved_bell_curved_edge_nodal_basis (col 9 vs col 7)"
+set termoption noenhanced
+set multiplot layout 3,6 title GPVAL_PWD . "\n test_curved_bell_curved_edge_nodal_basis (col 9 vs col 7)"
 set grid
 set xlabel "s"
 set ylabel "dpsi/dn"
