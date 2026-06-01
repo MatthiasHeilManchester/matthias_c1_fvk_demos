@@ -1759,7 +1759,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    Shape psi(n_interpolation_test);
    
    // Linearly enumerated first derivs (x,y) or (n,t)
-   DShape dpsi(n_interpolation_test,2);
+     DShape dpsi(n_interpolation_test,2);
    
    // Linearly enumerated  2nd derivs (xx, xy, yy) or (or nn, nt,tt) 
    DShape d2psi(n_interpolation_test,3);
@@ -1773,6 +1773,11 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
              dir_name_for_output.c_str());
      some_file.open(filename);
     }
+
+   std::stringstream legend_stream;
+   legend_stream << std::fixed << std::setprecision(2)
+                 << "\nLegend for interpolation tests:\n"
+                 << "===============================\n";
    
    // output intermediate results to screen
    bool output_to_screen=false;
@@ -1788,8 +1793,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
       {
        oomph_info << std::fixed << std::setprecision(1);
       }
-
-
 
 
      // TEST LOGIC:
@@ -1827,7 +1830,15 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
         }
        
        
-       // Call the derivatives of the shape and test functions 
+       // Call the derivatives of the shape and test functions
+       // Note: these are the derivatives w.r.t. to the cartesian
+       // coordinates!
+       // For MH's benefit: the basis functinos have changed so that
+       // they make it easier to interpolate derivative boundary conditions.
+       // However, once this transformation has taken place, we're simply
+       // taking derivatives w.r.t. to the good old cartesian coordinates
+       // here! This is because THIS is we what want in the code when working
+       // out the residuals (i.e. do actual maths with them!). 
        //double J =
        el_pt->d2basis_and_d2test_w_eulerian_foeppl_von_karman(dof_location_and_tests.first,
                                                               psi_n_w,
@@ -1843,6 +1854,19 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                                                               d2test_n_wdxi2,
                                                               d2test_i_wdxi2);
        
+
+        // hierher HELP: This function (above) calls
+        // CurvableBellElement<NNODE_1D>::d2_c1_basis_eulerian(...)
+        // and then rotate_shape(...). Which presumably changes the basis functions
+        // (and their derivatives w.r.t. x and y (!)) so that the shape
+        // functions have an easy interpretation in terms of boundary fitted
+        // coordinates n,t. However, to check the interpolation properties,
+        // I have to translate the derivatives w.r.t. x and y into derivatives
+        // w.r.t. to n and t. Or do I? What are those derivatives in the interior
+        // of the element (where I'm checking the interpolation conditions).
+
+
+
        
        // Move across into 1D enumeration:
        unsigned counter=0;
@@ -1853,6 +1877,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
          for (unsigned k=0;k<n_w_nodal_type;k++)
           {
            psi(counter)=psi_n_w(j,k);
+           
+           // MH TO DO: TRAMSLATE INTO NORMAL AND TANGENT DERIVATIVES AND CHECK THEM!
            dpsi(counter,0)=dpsi_n_wdxi(j,k,0);
            dpsi(counter,1)=dpsi_n_wdxi(j,k,1);
            d2psi(counter,0)=d2psi_n_wdxi2(j,k,0);
@@ -1865,6 +1891,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        for (unsigned j=0;j<n_w_internal_type;j++)
         {
          psi(counter)=psi_i_w(j);
+         
+         // MH TO DO: TRAMSLATE INTO NORMAL AND TANGENT DERIVATIVES AND CHECK THEM!
          dpsi(counter,0)=dpsi_i_wdxi(j,0);
          dpsi(counter,1)=dpsi_i_wdxi(j,1);
          d2psi(counter,0)=d2psi_i_wdxi2(j,0);
@@ -1883,6 +1911,14 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
           {         
            oomph_info << test_type << " " << std::endl;
           }
+         
+         legend_stream
+          << "Interpolation test " << interpolation_condition_count
+          << ": Dof classification " <<  dof_class.first << count
+          << ". Testing " << test_type << " at s = ("
+          << dof_location_and_tests.first[0] << " "
+          << dof_location_and_tests.first[1] << ") " 
+          << std::endl;
          
          if (test_type=="w")
           {
@@ -2038,6 +2074,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
     {
      oomph_info << BOLD_RED << "Test of curved bell basis functions failed!"
                 << RESET << std::endl;
+     oomph_info << legend_stream.str();
     }
    
    if (have_nonzero_off_diagonals)
@@ -2284,8 +2321,10 @@ void validate_monomials_to_basic_basis_functions(const std::string&
 
 
  oomph_info
-  << BOLD_BLUE << "\n\n\nTesting Bernadou basic basis functions for M = " << M << "\n"
-  << "==================================================" << RESET << std::endl;
+  << BOLD_BLUE << "\n\n\nTesting Bernadou basic basis functions for M = "
+  << M << "\n"
+  << "=================================================="
+  << RESET << std::endl;
 
  // Make Bernadou element
  BernadouElementBasis<M>* b_pt=new BernadouElementBasis<M>;
@@ -2303,71 +2342,142 @@ void validate_monomials_to_basic_basis_functions(const std::string&
                        // end up in a Vector of length 3). 
            std::pair<  // for each instance store a pair:
             Vector<double>,     // first  part of pair stores the coordinates;
-            Vector<std::string> // second part of pair stores the types of 
-                                // dofs (value, deriv, ...); in general there
-                                // are multiple ones (e.g. at the vertices we
-                                // have 6) so we store them in a vector
-            >>> test_point;
+            Vector<std::pair<std::string, // second part of pair stores a pair, containing
+                                           // vector of types (string) of 
+                                           // dofs (value, deriv, ...); in general there
+                                           // are multiple ones (e.g. at the vertices we
+                                           // have 6) so we store them in a vector
+                   unsigned>               // and the enumeration of the associated dof/basis
+                                           // function
+                   >>>> test_point;
  
  test_point["a"].resize(3);
- test_point["a"][0]={{1.0,0.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
- test_point["a"][1]={{0.0,1.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
- test_point["a"][2]={{0.0,0.0},{"w","dwdx","dwdy","d2wdx2","d2wdxdy","d2wdy2"}};
+ test_point["a"][0]={{1.0,0.0},
+                     {std::make_pair("w",0),
+                      std::make_pair("dwdx",3),
+                      std::make_pair("dwdy",4),
+                      std::make_pair("d2wdx2",9),
+                      std::make_pair("d2wdxdy",10),
+                      std::make_pair("d2wdy2",11)}};
+ test_point["a"][1]={{0.0,1.0},
+                     {std::make_pair("w",1),
+                      std::make_pair("dwdx",5),
+                      std::make_pair("dwdy",6),
+                      std::make_pair("d2wdx2",12),
+                      std::make_pair("d2wdxdy",13),
+                      std::make_pair("d2wdy2",14)}};
+ test_point["a"][2]={{0.0,0.0},
+                     {std::make_pair("w",2),
+                      std::make_pair("dwdx",7),
+                      std::make_pair("dwdy",8),
+                      std::make_pair("d2wdx2",15),
+                      std::make_pair("d2wdxdy",16),
+                      std::make_pair("d2wdy2",17)}};
  test_point["b"].resize(3);
- test_point["b"][0]={{0.0,0.5},{"-dwdx"}};
- test_point["b"][1]={{0.5,0.0},{"-dwdy"}};
- test_point["b"][2]={{0.5,0.5},{"dwdn"}};
+ test_point["b"][0]={{0.0,0.5},
+                     {std::make_pair("-dwdx",18)}};
+ test_point["b"][1]={{0.5,0.0},
+                     {std::make_pair("-dwdy",19)}};
+ test_point["b"][2]={{0.5,0.5},
+                     {std::make_pair("dwdn",20)}};
  switch (M)
   {
   case 3:
    test_point["d"].resize(6);
-   test_point["d"][0]={{0.0,0.75},{"w","-dwdx"}};
-   test_point["d"][1]={{0.0,0.25},{"w","-dwdx"}};
+   test_point["d"][0]={{0.0,0.75},
+                       {std::make_pair("w",21),
+                        std::make_pair("-dwdx",27)}}; //23
+   test_point["d"][1]={{0.0,0.25},
+                       {std::make_pair("w",22),
+                        std::make_pair("-dwdx",28)}}; //24
    
-   test_point["d"][2]={{0.25,0.0},{"w","-dwdy"}};
-   test_point["d"][3]={{0.75,0.0},{"w","-dwdy"}};
+   test_point["d"][2]={{0.25,0.0},
+                       {std::make_pair("w",23), //25
+                        std::make_pair("-dwdy",29)}}; //27
+   test_point["d"][3]={{0.75,0.0},
+                       {std::make_pair("w",24), //26
+                        std::make_pair("-dwdy",30)}}; //28
    
-   test_point["d"][4]={{0.75,0.25},{"w","dwdn"}};
-   test_point["d"][5]={{0.25,0.75},{"w","dwdn"}};
+   test_point["d"][4]={{0.75,0.25},
+                       {std::make_pair("w",25), //29
+                        std::make_pair("dwdn",31)}};
+   test_point["d"][5]={{0.25,0.75},
+                       {std::make_pair("w",26), //30
+                        std::make_pair("dwdn",32)}};
    
    test_point["e"].resize(3);
-   test_point["e"][0]={{0.5 ,0.25},{"w"}};
-   test_point["e"][1]={{0.25,0.5 },{"w"}};
-   test_point["e"][2]={{0.25,0.25},{"w"}};
+   test_point["e"][0]={{0.5 ,0.25},{std::make_pair("w",33)}};
+   test_point["e"][1]={{0.25,0.5 },{std::make_pair("w",34)}};
+   test_point["e"][2]={{0.25,0.25},{std::make_pair("w",35)}};
    
    break;
    
   case 5:
-   test_point["d"].resize(12);
-   test_point["d"][0]={{0.0,5.0/6.0},{"w","-dwdx"}};
-   test_point["d"][1]={{0.0,4.0/6.0},{"w","-dwdx"}};
-   test_point["d"][2]={{0.0,2.0/6.0},{"w","-dwdx"}};
-   test_point["d"][3]={{0.0,1.0/6.0},{"w","-dwdx"}};
 
-   test_point["d"][4]={{1.0/6.0,0.0},{"w","-dwdy"}};
-   test_point["d"][5]={{2.0/6.0,0.0},{"w","-dwdy"}};
-   test_point["d"][6]={{4.0/6.0,0.0},{"w","-dwdy"}};
-   test_point["d"][7]={{5.0/6.0,0.0},{"w","-dwdy"}};
+   test_point["d"].resize(12);
+   test_point["d"][0]={{0.0,5.0/6.0},
+                       {std::make_pair("w",21),
+                        std::make_pair("-dwdx",33)}}; //25
+   test_point["d"][1]={{0.0,4.0/6.0},
+                       {std::make_pair("w",22),
+                        std::make_pair("-dwdx",34)}}; //26
+   test_point["d"][2]={{0.0,2.0/6.0},
+                       {std::make_pair("w",23),
+                        std::make_pair("-dwdx",35)}}; //27
+   test_point["d"][3]={{0.0,1.0/6.0},
+                       {std::make_pair("w",24),
+                        std::make_pair("-dwdx",36)}}; //28
+   
+   test_point["d"][4]={{1.0/6.0,0.0},
+                       {std::make_pair("w",25), //29
+                        std::make_pair("-dwdy",37)}}; //33
+   test_point["d"][5]={{2.0/6.0,0.0},
+                       {std::make_pair("w",26), //30
+                        std::make_pair("-dwdy",38)}}; //34
+   test_point["d"][6]={{4.0/6.0,0.0},
+                       {std::make_pair("w",27), //31
+                        std::make_pair("-dwdy",39)}}; //35
+   test_point["d"][7]={{5.0/6.0,0.0},
+                       {std::make_pair("w",28), //32
+                        std::make_pair("-dwdy",40)}}; // 36
   
-   test_point["d"][8 ]={{5.0/6.0,1.0/6.0},{"w","dwdn"}};
-   test_point["d"][9 ]={{4.0/6.0,2.0/6.0},{"w","dwdn"}};
-   test_point["d"][10]={{2.0/6.0,4.0/6.0},{"w","dwdn"}};
-   test_point["d"][11]={{1.0/6.0,5.0/6.0},{"w","dwdn"}};
+   test_point["d"][8 ]={{5.0/6.0,1.0/6.0},
+                        {std::make_pair("w",29), //37
+                         std::make_pair("dwdn",41)}};
+   test_point["d"][9 ]={{4.0/6.0,2.0/6.0},
+                        {std::make_pair("w",30), //38
+                         std::make_pair("dwdn",42)}};
+   test_point["d"][10]={{2.0/6.0,4.0/6.0},
+                        {std::make_pair("w",31), //39
+                         std::make_pair("dwdn",43)}};
+   test_point["d"][11]={{1.0/6.0,5.0/6.0},
+                        {std::make_pair("w",32), //40
+                         std::make_pair("dwdn",44)}};
    
    test_point["e"].resize(10);
-   test_point["e"][0]={{1.0/6.0,4.0/6.0},{"w"}};
-   test_point["e"][1]={{1.0/6.0,3.0/6.0},{"w"}};
-   test_point["e"][2]={{1.0/6.0,2.0/6.0},{"w"}};
-   test_point["e"][3]={{1.0/6.0,1.0/6.0},{"w"}};
+   test_point["e"][0]={{1.0/6.0,4.0/6.0},
+                       {std::make_pair("w",45)}};
+   test_point["e"][1]={{1.0/6.0,3.0/6.0},
+                       {std::make_pair("w",46)}};
+   test_point["e"][2]={{1.0/6.0,2.0/6.0},
+                       {std::make_pair("w",47)}};
+   test_point["e"][3]={{1.0/6.0,1.0/6.0},
+                       {std::make_pair("w",48)}};
 
-   test_point["e"][4]={{2.0/6.0,1.0/6.0},{"w"}};
-   test_point["e"][5]={{3.0/6.0,1.0/6.0},{"w"}};
-   test_point["e"][6]={{4.0/6.0,1.0/6.0},{"w"}};
+   test_point["e"][4]={{2.0/6.0,1.0/6.0},
+                       {std::make_pair("w",49)}};
+   test_point["e"][5]={{3.0/6.0,1.0/6.0},
+                       {std::make_pair("w",50)}};
+   test_point["e"][6]={{4.0/6.0,1.0/6.0},
+                       {std::make_pair("w",51)}};
    
-   test_point["e"][7]={{3.0/6.0,2.0/6.0},{"w"}};
-   test_point["e"][8]={{2.0/6.0,3.0/6.0},{"w"}};
+   test_point["e"][7]={{3.0/6.0,2.0/6.0},
+                       {std::make_pair("w",52)}};
+   test_point["e"][8]={{2.0/6.0,3.0/6.0},
+                       {std::make_pair("w",53)}};
    
-   test_point["e"][9]={{2.0/6.0,2.0/6.0},{"w"}};
+   test_point["e"][9]={{2.0/6.0,2.0/6.0},
+                       {std::make_pair("w",54)}};
 
    break;
 
@@ -2395,8 +2505,11 @@ if (plot_em)
 // output intermediate results to screen
 bool output_to_screen=false;
 
+oomph_info << "\nDof classification:\n"
+           << "==================="
+           << std::endl;
+
 // Loop over the dofs
-unsigned interpolation_condition_count=0;
 
 // (class of dof: a,b,d,e)
 for (auto dof_class : test_point)
@@ -2432,13 +2545,26 @@ for (auto dof_class : test_point)
     // Loop over test types: dof_location_and_tests.second
     // is the vector whose strings tell us what quantity
     // we're supposed to interpolate/test
-    for (auto test_type : dof_location_and_tests.second)
-      {       
+    for (auto test_type_and_number : dof_location_and_tests.second)
+      {
+       std::string test_type=test_type_and_number.first;
+       unsigned interpolation_condition=test_type_and_number.second;
        if (output_to_screen)
         {         
-         oomph_info << test_type << " " << std::endl;
+         oomph_info << test_type_and_number.first << " " << std::endl;
         }
        
+       //legend_stream
+       oomph_info
+        << "Interpolation test " << interpolation_condition
+        << ": Dof classification " <<  dof_class.first << count
+        << ". Testing " << test_type << " at s = ("
+        << (dof_location_and_tests.first)[0] << " "
+        << (dof_location_and_tests.first)[0] << ") " 
+        << std::endl;
+       
+
+         
        // Get all the basis functions and derivatives at this point
        b_pt->full_basic_polynomials(dof_location_and_tests.first,psi);
        b_pt->dfull_basic_polynomials(dof_location_and_tests.first,dpsi);
@@ -2448,7 +2574,7 @@ for (auto dof_class : test_point)
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(interpolation_condition_count,i)=psi[i];
+           test_matrix(interpolation_condition,i)=psi[i];
            if (output_to_screen) oomph_info << psi[i] << " ";
           }
         }
@@ -2456,7 +2582,7 @@ for (auto dof_class : test_point)
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(interpolation_condition_count,i)=dpsi(i,0);
+           test_matrix(interpolation_condition,i)=dpsi(i,0);
            if (output_to_screen) oomph_info << dpsi(i,0) << " ";
           }
         }
@@ -2464,7 +2590,7 @@ for (auto dof_class : test_point)
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(interpolation_condition_count,i)=dpsi(i,1);
+           test_matrix(interpolation_condition,i)=dpsi(i,1);
            if (output_to_screen) oomph_info << dpsi(i,1) << " ";
           }
         }
@@ -2472,7 +2598,7 @@ for (auto dof_class : test_point)
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(interpolation_condition_count,i)=-dpsi(i,0);
+           test_matrix(interpolation_condition,i)=-dpsi(i,0);
            if (output_to_screen) oomph_info << -dpsi(i,0) << " ";
           }
         }
@@ -2480,7 +2606,7 @@ for (auto dof_class : test_point)
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(interpolation_condition_count,i)=-dpsi(i,1);
+           test_matrix(interpolation_condition,i)=-dpsi(i,1);
            if (output_to_screen) oomph_info << -dpsi(i,1) << " ";
           }
         }
@@ -2488,7 +2614,7 @@ for (auto dof_class : test_point)
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(interpolation_condition_count,i)=
+           test_matrix(interpolation_condition,i)=
             1.0/sqrt(2.0)*(dpsi(i,0)+dpsi(i,1));
            if (output_to_screen)
             {
@@ -2501,7 +2627,7 @@ for (auto dof_class : test_point)
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(interpolation_condition_count,i)=d2psi(i,0);
+           test_matrix(interpolation_condition,i)=d2psi(i,0);
            if (output_to_screen) oomph_info << d2psi(i,0) << " ";
           }
         }
@@ -2509,7 +2635,7 @@ for (auto dof_class : test_point)
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(interpolation_condition_count,i)=d2psi(i,1);
+           test_matrix(interpolation_condition,i)=d2psi(i,1);
            if (output_to_screen) oomph_info << d2psi(i,1) << " ";
           }
         }
@@ -2517,7 +2643,7 @@ for (auto dof_class : test_point)
         {
          for (unsigned i=0;i<n_basic;i++)
           {
-           test_matrix(interpolation_condition_count,i)=d2psi(i,2);
+           test_matrix(interpolation_condition,i)=d2psi(i,2);
            if (output_to_screen) oomph_info << d2psi(i,2) << " ";
           }
         }
@@ -2528,7 +2654,6 @@ for (auto dof_class : test_point)
                              OOMPH_EXCEPTION_LOCATION);
         }
        
-       interpolation_condition_count++;
        if (output_to_screen) oomph_info << std::endl;
        
       }
@@ -2557,13 +2682,18 @@ bool have_nonzero_off_diagonals=false;
 for (unsigned i=0;i<n_interpolation_test;i++)
  {
   unsigned count_one_in_row=0;
-  unsigned count_non_one_in_row=0;
+  unsigned count_zero_in_row=0;
   unsigned count_one_in_col=0;
-  unsigned count_non_one_in_col=0;
+  unsigned count_zero_in_col=0;
+  unsigned count_other_in_row=0;
+  unsigned count_other_in_col=0;
   for (unsigned j=0;j<n_interpolation_test;j++)
    {
-    if (std::abs(test_matrix(i,j)    )<tol) count_non_one_in_row++;
-    if (std::abs(test_matrix(i,j)-1.0)<tol)
+    if (std::abs(test_matrix(i,j)    )<tol)
+     {
+      count_zero_in_row++;
+     }
+    else if (std::abs(test_matrix(i,j)-1.0)<tol)
      {
       count_one_in_row++;
       row_unit_ness_stream << "Unit entry in row " << i << " is ";
@@ -2576,11 +2706,19 @@ for (unsigned i=0;i<n_interpolation_test;i++)
         have_nonzero_off_diagonals=true;
         row_unit_ness_stream << RED << " off diagonal, namely in column "
                              << RESET << j << std::endl;
-       }
-          
+       }          
      }
-    if (std::abs(test_matrix(j,i)    )<tol) count_non_one_in_col++;
-    if (std::abs(test_matrix(j,i)-1.0)<tol)
+    else
+     {
+      count_other_in_row++;
+     }
+
+    
+    if (std::abs(test_matrix(j,i)    )<tol)
+     {
+      count_zero_in_col++;
+     }
+    else if (std::abs(test_matrix(j,i)-1.0)<tol)
      {
       count_one_in_col++;         
       col_unit_ness_stream << "Unit entry in column " << j << " is ";
@@ -2595,6 +2733,10 @@ for (unsigned i=0;i<n_interpolation_test;i++)
                              << RESET << i << std::endl;
        }
      }
+    else
+     {
+      count_other_in_col++;
+     }
 
    }
 
@@ -2602,14 +2744,18 @@ for (unsigned i=0;i<n_interpolation_test;i++)
   diagnostic << "Row "
              << i << " has "
              << count_one_in_row << " ones (should be 1) and "
-             << count_non_one_in_row << " non-ones (should be "
-             << n_interpolation_test-1 << ") "
+             << count_zero_in_row << " zeros (should be "
+             << n_interpolation_test-1 << ") and "
+             << count_other_in_row
+             << " entries that are neither (should be 0)"
              << std::endl;
      
   if ((count_one_in_row!=1)||
       (count_one_in_col!=1)||
-      (count_non_one_in_row!=(n_interpolation_test-1))||
-      (count_non_one_in_col!=(n_interpolation_test-1)))
+      (count_zero_in_row!=(n_interpolation_test-1))||
+      (count_zero_in_col!=(n_interpolation_test-1))||
+      (count_other_in_row!=0)||
+      (count_other_in_col!=0))
    {
     test_passed=false;
     oomph_info << BOLD_RED << "failed: " << RESET << diagnostic.str();
@@ -2768,7 +2914,6 @@ int main(int argc, char** argv)
   // Test 1: From the very bottom: Monomials are OK
   validate_monomials_to_basic_basis_functions<5>();
   validate_monomials_to_basic_basis_functions<3>();
-
 
   // Loop over boundary order
   for (unsigned b=3;b<6;b+=2)
