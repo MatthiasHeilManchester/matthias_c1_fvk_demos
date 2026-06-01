@@ -66,6 +66,218 @@ namespace Random
  
 }
 
+//////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+/// Namespace for polynialness checking
+namespace PolynomialChecker
+{
+
+
+ /// Compute coefficients of interpolating polynomial
+ void coefficients_of_interpolating_polynomial(
+  const Vector<double>& s,
+  const Vector<double>& f,
+  const unsigned& degree,
+  Vector<double>& coeffs,
+  double& s_mid,
+  double& s_scale)
+ {
+  const unsigned m = degree + 1;
+  
+  // Matrix
+  DenseDoubleMatrix V(m);
+  Vector<double> rhs(m);
+  coeffs.resize(m);
+  for (unsigned i = 0; i < m; i++)
+   {
+    double x = 1.0;
+    double s_scaled = (s[i] - s_mid) / s_scale;      
+    for (unsigned j = 0; j < m; j++)
+     {
+      V(i,j) = x;
+      x *= s_scaled;
+     }
+    rhs[i] = f[i];
+   }
+
+  // Solve linear system
+  DenseLU linear_solver;
+  linear_solver.solve(&V,rhs,coeffs);
+ }
+ 
+ /// Evaluate polynomial p(s) with coefficients c
+ /// (note the indep variable is scaled!
+ double eval_poly_scaled(const Vector<double>& c,
+                        const double& s,
+                        const double& s_mid,
+                        const double& s_scale)
+{
+  double s_scaled = (s - s_mid) / s_scale;
+  double val = c.back();
+  unsigned n=c.size();
+  // Need int here
+  for (int j = n - 2; j >= 0; j--)
+   {
+    val = val * s_scaled + c[j];
+   }
+
+  return val;
+}
+
+ 
+/// Return true if sample pairs (s, f(s)) can be represented
+/// to within specified tolerance (default tol=1.0e-12) as
+/// a polynomial of specified degree.
+ bool is_polynomial_of_degree(
+  const Vector<double>& s,
+  const Vector<double>& f,
+  const unsigned& degree,
+  const double& tol = 1e-12)
+ {
+  const unsigned n = s.size();
+  const unsigned m = degree + 1;
+
+  /// Sanity test
+  if (n < m)
+   {
+    // hierher oomph-lib error
+    throw std::runtime_error("Not enough points");
+   }
+
+  // Extract equally spaced points from (assumed to be sorted)
+  // full sample
+  Vector<double> s_fit(m), f_fit(m);
+  Vector<unsigned> used_indices(m);
+  for (unsigned k = 0; k < m; k++)
+   {
+    // Integer decision desired!
+    unsigned i = k * (n - 1) / (m - 1);  
+    s_fit[k] = s[i];
+    f_fit[k] = f[i];
+    used_indices[k] = i;
+   }
+
+
+#ifdef PARANOID
+  for (unsigned k = 1; k < m; ++k)
+   {
+    if (used_indices[k] <= used_indices[k-1])
+     {
+      // hierher throw properly
+      std::cout << "Non-increasing interpolation index at k="
+                << k << " : " << used_indices[k] << std::endl;
+      abort();
+     }
+   }
+#endif
+
+ 
+  // Scale
+  double s_min = s[0];
+  double s_max = s[0];
+  for (unsigned i = 1; i < n; i++)
+   {
+    if (s[i] < s_min) s_min = s[i];
+    if (s[i] > s_max) s_max = s[i];
+   }
+  double s_mid = 0.5 * (s_min + s_max);
+  double s_scale = 0.5 * (s_max - s_min);
+  if (s_scale == 0.0) s_scale = 1.0;
+
+
+  
+  // Step 1: interpolate using m approximately equally spaced points
+  Vector<double> coeff;
+  coefficients_of_interpolating_polynomial(s_fit, f_fit, degree,
+                                           coeff,s_mid,s_scale);
+
+ #ifdef PARANOID
+ // Checking interpolation points
+ double mx_err=0.0;
+ for (unsigned k = 0; k < m; k++)
+  {
+   double val = eval_poly_scaled(coeff, s_fit[k], s_mid, s_scale);
+   mx_err=std::max(mx_err,std::abs(val - f_fit[k]));
+  }
+ if (mx_err>tol)
+  {
+   // hierher throw
+   std::cout
+    << "Polynomial doesn't interpolate chosen fitting points; mx_err = "
+    << mx_err << std::endl;
+   abort();
+  }
+#endif
+
+  // Compute scale (for relative tolerance)
+  double max_f = 0.0;
+  for (double val : f)
+   {
+    max_f = std::max(max_f, std::abs(val));
+   }
+  if (max_f == 0.0) max_f = 1.0;
+  double threshold = tol * max_f;
+  
+  // Step 2: validate on remaining points
+  double max_err=0.0;
+  for (unsigned i = 0; i < n; i++)
+   {
+    // skip interpolation points
+    bool used = false;
+    for (unsigned k = 0; k < m; ++k)
+     {
+      if (i == used_indices[k])
+       {
+        used = true;
+        break;
+       }
+     }
+    if (used) continue;
+    
+    double val = eval_poly_scaled(coeff, s[i], s_mid, s_scale);
+    double err = std::abs(val - f[i]);
+    max_err = std::max(max_err, err);
+   }
+  
+  std::cout << "max error: " << max_err << std::endl;
+  return (max_err < threshold);
+ }
+
+
+
+ /// Return the (most likely) lowest order of the polynomial represented by
+ /// the s,p(s) pairs. Don't use for overly large values of the maximum
+ /// degree because the Vandermonde matrix used in the guts of this will be
+ /// too ill-conditioned. Return is negative (-1) if neither of the specified
+ /// polynomial degrees fits to within specified tolerance (default 1e-12).
+ int most_likely_polynomial_degree(const Vector<double>& s,
+                                    const Vector<double>& f,
+                                    const unsigned& max_degree,
+                                    const double& tol = 1e-12)
+ {
+  int best_fit_degree=-1;
+  for (unsigned d=1;d<max_degree;d++)
+   {
+    if (is_polynomial_of_degree(s,f,d,tol))
+     {
+      best_fit_degree=d;
+      return best_fit_degree;
+     }
+   }
+  return best_fit_degree;
+ }
+
+}
+ 
+//////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////
+
+
+
+
 
 // hierher move to geom_objects.h
 
@@ -1498,23 +1710,15 @@ void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_func
                                        <<  drdzeta[1]/norm << " " // 5 
                                        << -drdzeta[0]/norm << " " // 6
                                        << s << " "  // 7
-                                       << psi_n_w(j,k) << " "; // 8
-               if (Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
-                {
-                 *(nodal_file_pt[count]) << dpsi_n_wdxi(j,k,0) << " "; // 9 (d/dn because we're rotated!)
-                }
-               else
-                {
-                 *(nodal_file_pt[count]) << (  dpsi_n_wdxi(j,k,0)*drdzeta[1]
-                                               -dpsi_n_wdxi(j,k,1)*drdzeta[0])/norm << " "; // 9 (dpsi/dn)
-                }
-               *(nodal_file_pt[count]) << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
+                                       << psi_n_w(j,k) << " " // 8
+                                       << (  dpsi_n_wdxi(j,k,0)*drdzeta[1]
+                                            -dpsi_n_wdxi(j,k,1)*drdzeta[0])/norm << " "// 9 (dpsi/dn)
+                                       << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
                                        << s - 2.0*s*s + s*s*s << " " // 11
                                        << 3.0*s*s - 2.0*s*s*s << " " // 12
                                        << -s*s + s*s*s << " " // 13
                                        << std::endl;
-              }
-             
+              }             
              count++;
             }
           }
@@ -1548,23 +1752,16 @@ void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_func
                                          <<  drdzeta[1]/norm << " " // 5 
                                          << -drdzeta[0]/norm << " " // 6
                                          << s << " "  // 7
-                                         << psi_i_w(k_type) << " "; // 8
-             if (Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
-              {
-               *(nodal_file_pt[count]) << dpsi_i_wdxi(k_type,0) << " "; // 9 (d/dn because we're rotated!)
-              }
-             else
-              {
-               *(nodal_file_pt[count]) << (   dpsi_i_wdxi(k_type,0)*drdzeta[1]
-                                              -dpsi_i_wdxi(k_type,1)*drdzeta[0])/norm << " "; // 9 (dpsi/dn)
-              }
-             *(nodal_file_pt[count]) << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
-                                     << s - 2.0*s*s + s*s*s << " " // 11
-                                     << 3.0*s*s - 2.0*s*s*s << " " // 12
-                                     << -s*s + s*s*s << " " // 13
-                                     << std::endl;
+                                         << psi_i_w(k_type) << " " // 8
+                                         << (   dpsi_i_wdxi(k_type,0)*drdzeta[1]
+                                              -dpsi_i_wdxi(k_type,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
+                                         << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
+                                         << s - 2.0*s*s + s*s*s << " " // 11
+                                         << 3.0*s*s - 2.0*s*s*s << " " // 12
+                                         << -s*s + s*s*s << " " // 13
+                                         << std::endl;
             }
-             count++;
+           count++;
           }
         }
 
@@ -2002,13 +2199,19 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    for (unsigned i=0;i<n_interpolation_test;i++)
     {
      unsigned count_one_in_row=0;
-     unsigned count_non_one_in_row=0;
+     unsigned count_zero_in_row=0;
      unsigned count_one_in_col=0;
-     unsigned count_non_one_in_col=0;
+     unsigned count_zero_in_col=0;
+     unsigned count_other_in_row=0;
+     unsigned count_other_in_col=0;
      for (unsigned j=0;j<n_interpolation_test;j++)
       {
-       if (std::abs(test_matrix(i,j)    )<tol) count_non_one_in_row++;
-       if (std::abs(test_matrix(i,j)-1.0)<tol)
+       
+       if (std::abs(test_matrix(i,j)    )<tol)
+        {
+         count_zero_in_row++;
+        }
+       else if (std::abs(test_matrix(i,j)-1.0)<tol)
         {
          count_one_in_row++;
          row_unit_ness_stream << "Unit entry in row " << i << " is ";
@@ -2022,10 +2225,18 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
            row_unit_ness_stream << RED << " off diagonal, namely in column "
                                 << RESET << j << std::endl;
           }
-          
         }
-       if (std::abs(test_matrix(j,i)    )<tol) count_non_one_in_col++;
-       if (std::abs(test_matrix(j,i)-1.0)<tol)
+       else
+        {
+         count_other_in_row++;
+        }
+
+       
+       if (std::abs(test_matrix(j,i)    )<tol)
+        {
+         count_zero_in_col++;
+        }
+       else if (std::abs(test_matrix(j,i)-1.0)<tol)
         {
          count_one_in_col++;         
          col_unit_ness_stream << "Unit entry in column " << j << " is ";
@@ -2040,21 +2251,30 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                                 << RESET << i << std::endl;
           }
         }
-
-      }
-
+       else
+        {
+         count_other_in_col++;
+        }
+             
+      } 
+     
      std::stringstream diagnostic;
      diagnostic << "Row "
-                 << i << " has "
-                 << count_one_in_row << " ones (should be 1) and "
-                 << count_non_one_in_row << " non-ones (should be "
-                 << n_interpolation_test-1 << ") "
-                 << std::endl;
+                << i << " has "
+                << count_one_in_row << " ones (should be 1) and "
+                << count_zero_in_row << " zeroes (should be "
+                << n_interpolation_test-1 << ") and "
+                << count_other_in_row
+                << " entries that are neither (should be 0)"
+                << std::endl;
+     
      
      if ((count_one_in_row!=1)||
          (count_one_in_col!=1)||
-         (count_non_one_in_row!=(n_interpolation_test-1))||
-         (count_non_one_in_col!=(n_interpolation_test-1)))
+         (count_zero_in_row!=(n_interpolation_test-1))||
+         (count_zero_in_col!=(n_interpolation_test-1))||
+         (count_other_in_row!=0)||
+         (count_other_in_col!=0))
       {
        test_passed=false;
        oomph_info << BOLD_RED <<  "failed: " << RESET << diagnostic.str();
@@ -2064,7 +2284,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        oomph_info << BOLD_GREEN << "passed: " << RESET << diagnostic.str();
       }
     }
-
+   
    if (test_passed)
     {
      oomph_info << BOLD_GREEN << "Test of curved bell basis functions passed!"
@@ -2091,6 +2311,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
       << "No off-diagonals in test matrix: basis fcts enumerated consistently"
       << RESET << std::endl;
     }
+
+   // hierher test order of of interpolatino along curved boundary
    
    
 // // Plot all basis functions
@@ -2911,6 +3133,33 @@ int main(int argc, char** argv)
 
 
 
+  
+  // Test polynomial checker
+  //------------------------
+  {
+
+   // Sample points
+   Vector<double> s = {0.0,1.0,2.0,3.0,4.0,5.0};
+   Vector<double> f;
+   for(double x : s)
+    {
+     f.push_back(2 + 3*x + x*x*x); 
+    }
+   unsigned degree=3;
+   bool ok =  PolynomialChecker::is_polynomial_of_degree(s, f, degree);
+   
+   if (ok)
+    {
+     std::cout << "Pass\n";
+    }
+   else
+    {
+     std::cout << "Fail\n";
+    }
+  }
+  exit(0);
+
+   
   // Test 1: From the very bottom: Monomials are OK
   validate_monomials_to_basic_basis_functions<5>();
   validate_monomials_to_basic_basis_functions<3>();
