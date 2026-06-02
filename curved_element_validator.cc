@@ -131,12 +131,11 @@ namespace PolynomialChecker
 /// to within specified tolerance (default tol=1.0e-12) as
 /// a polynomial of specified degree.
  bool is_polynomial_of_degree(
-  const Vector<double>& s,
-  const Vector<double>& f,
+  const Vector<std::pair<double,double>>& s_and_f,
   const unsigned& degree,
   const double& tol = 1e-12)
  {
-  const unsigned n = s.size();
+  const unsigned n = s_and_f.size();
   const unsigned m = degree + 1;
 
   /// Sanity test
@@ -154,14 +153,14 @@ namespace PolynomialChecker
    {
     // Integer decision desired!
     unsigned i = k * (n - 1) / (m - 1);  
-    s_fit[k] = s[i];
-    f_fit[k] = f[i];
+    s_fit[k] = s_and_f[i].first;
+    f_fit[k] = s_and_f[i].second;
     used_indices[k] = i;
    }
 
 
 #ifdef PARANOID
-  for (unsigned k = 1; k < m; ++k)
+  for (unsigned k = 1; k < m; k++)
    {
     if (used_indices[k] <= used_indices[k-1])
      {
@@ -175,17 +174,18 @@ namespace PolynomialChecker
 
  
   // Scale
-  double s_min = s[0];
-  double s_max = s[0];
+  double max_f=0.0;
+  double s_min = s_and_f[0].first;
+  double s_max = s_and_f[0].first;
   for (unsigned i = 1; i < n; i++)
    {
-    if (s[i] < s_min) s_min = s[i];
-    if (s[i] > s_max) s_max = s[i];
+    max_f=std::max(max_f,std::abs(s_and_f[i].second));
+    if (s_and_f[i].first < s_min) s_min = s_and_f[i].first;
+    if (s_and_f[i].first > s_max) s_max = s_and_f[i].first;
    }
   double s_mid = 0.5 * (s_min + s_max);
   double s_scale = 0.5 * (s_max - s_min);
   if (s_scale == 0.0) s_scale = 1.0;
-
 
   
   // Step 1: interpolate using m approximately equally spaced points
@@ -196,27 +196,24 @@ namespace PolynomialChecker
  #ifdef PARANOID
  // Checking interpolation points
  double mx_err=0.0;
+ double val=0.0;
  for (unsigned k = 0; k < m; k++)
   {
-   double val = eval_poly_scaled(coeff, s_fit[k], s_mid, s_scale);
-   mx_err=std::max(mx_err,std::abs(val - f_fit[k]));
+   val = eval_poly_scaled(coeff, s_fit[k], s_mid, s_scale);
+   // relative error, scaled on max. value overall
+   mx_err=std::max(mx_err,std::abs(val - f_fit[k])/max_f);
   }
  if (mx_err>tol)
   {
-   // hierher throw
+   // hierher throw properly
    std::cout
-    << "Polynomial doesn't interpolate chosen fitting points; mx_err = "
-    << mx_err << std::endl;
+    << "Polynomial doesn't interpolate chosen fitting points; rel. mx_err = "
+    << mx_err << " val = " << val << std::endl;
    abort();
   }
 #endif
 
   // Compute scale (for relative tolerance)
-  double max_f = 0.0;
-  for (double val : f)
-   {
-    max_f = std::max(max_f, std::abs(val));
-   }
   if (max_f == 0.0) max_f = 1.0;
   double threshold = tol * max_f;
   
@@ -236,12 +233,10 @@ namespace PolynomialChecker
      }
     if (used) continue;
     
-    double val = eval_poly_scaled(coeff, s[i], s_mid, s_scale);
-    double err = std::abs(val - f[i]);
+    double val = eval_poly_scaled(coeff, s_and_f[i].first, s_mid, s_scale);
+    double err = std::abs(val - s_and_f[i].second);
     max_err = std::max(max_err, err);
    }
-  
-  std::cout << "max error: " << max_err << std::endl;
   return (max_err < threshold);
  }
 
@@ -252,15 +247,33 @@ namespace PolynomialChecker
  /// degree because the Vandermonde matrix used in the guts of this will be
  /// too ill-conditioned. Return is negative (-1) if neither of the specified
  /// polynomial degrees fits to within specified tolerance (default 1e-12).
- int most_likely_polynomial_degree(const Vector<double>& s,
-                                    const Vector<double>& f,
-                                    const unsigned& max_degree,
-                                    const double& tol = 1e-12)
+ int most_likely_polynomial_degree(const Vector<std::pair<double,double>>& s_and_f,
+                                   const unsigned& max_degree,
+                                   const double& tol = 1e-12)
  {
   int best_fit_degree=-1;
+  
+  // Check if all the values are the same (to within tolerance)
+  // if so we have a zeroth order polynomial
+  bool f_is_constant=true;
+  double first_entry=s_and_f[0].second;
+  unsigned n=s_and_f.size();
+  for (unsigned i=1;i<n;i++)
+   {
+    if (std::abs(first_entry-s_and_f[i].second)>tol)
+     {
+      f_is_constant=false;
+      break;
+     }
+   }
+  if (f_is_constant)
+   {
+    return 0;
+   }
+  
   for (unsigned d=1;d<max_degree;d++)
    {
-    if (is_polynomial_of_degree(s,f,d,tol))
+    if (is_polynomial_of_degree(s_and_f,d,tol))
      {
       best_fit_degree=d;
       return best_fit_degree;
@@ -1848,6 +1861,11 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
      some_file.close();
     }
    
+   // Get map to curvline boundaries of mesh
+   std::map<unsigned, C1CurviLine*> c1_curviline_boundary_pt =
+    Bulk_mesh_pt->c1_curviline_boundary_pt();
+   C1CurviLine* curviline_pt=c1_curviline_boundary_pt[b];
+   
    
    // Find the dimension of the element 
    const unsigned dim = el_pt->dim(); //2;
@@ -2312,65 +2330,249 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
       << RESET << std::endl;
     }
 
-   // hierher test order of of interpolatino along curved boundary
+
+   
+   // Test order of of interpolation along curved boundary
+   //=====================================================
+   Vector<double> r_from_boundary(2,0.0);
+   Vector<double> drdzeta(2,0.0);
+   Vector<double> zeta(1);
+   
+   // Loop over test points along edge
+   Vector<double> s_test(2);
+   unsigned n_test = 100;
+
+   // Sample to check which polynomial approximates them
+   Vector<double> s_sample(n_test);
+   Vector<Vector<double>> psi_n_sample(n_w_node*n_w_nodal_type,Vector<double>(n_test));
+   Vector<Vector<double>> dpsidn_n_sample(n_w_node*n_w_nodal_type,Vector<double>(n_test)); 
+   Vector<Vector<double>> psi_i_sample(n_w_internal_type,Vector<double>(n_test)); 
+   Vector<Vector<double>> dpsidn_i_sample(n_w_internal_type,Vector<double>(n_test));
+   for (unsigned i_test = 0; i_test < n_test; i_test++)
+    {
+
+     // hierher HELP
+     // This is the "long" edge of the reference triangle, "opposite" the
+     // origin of the s[0],s[1] coordinate system, but the curved edge
+     // may actually be somewhere different; how do I find out?
+     
+     // Get local coordinates of plot point
+     s_test[0]=double(i_test)/double(n_test-1);
+     s_test[1]=1.0-s_test[0];
+          
+     // Position r as fct of zeta from curvilinear boundary representation
+     zeta[0]=el_pt->bernadou_element_basis_pt()->get_s_ubar()+
+      s_test[1]*(el_pt->bernadou_element_basis_pt()->get_s_obar()-
+                 el_pt->bernadou_element_basis_pt()->get_s_ubar());
+     curviline_pt->position(zeta,r_from_boundary);
+     
+     // Derivative of position Vector w.r.t. to zeta:
+     curviline_pt->dposition(zeta, drdzeta);
+     
+     // Get plot point
+     Vector<double> interp_x(dim, 0.0);
+     el_pt->interpolated_x(s_test, interp_x);
+     
+     
+     // Call the derivatives of the shape and test functions for the out of
+     // plane unknown
+     //double J =
+     el_pt->d2basis_and_d2test_w_eulerian_foeppl_von_karman(s_test,
+                                                            psi_n_w,
+                                                            psi_i_w,
+                                                            dpsi_n_wdxi,
+                                                            dpsi_i_wdxi,
+                                                            d2psi_n_wdxi2,
+                                                            d2psi_i_wdxi2,
+                                                            test_n_w,
+                                                            test_i_w,
+                                                            dtest_n_wdxi,
+                                                            dtest_i_wdxi,
+                                                            d2test_n_wdxi2,
+                                                            d2test_i_wdxi2);
+     
+
+     // Use s[1] as edge coordinate
+     s_sample[i_test]=s_test[1];
+     
+     // Nodal basis functions
+     unsigned count=0;
+     for (unsigned j=0;j<n_w_node;j++)
+      { 
+       for (unsigned k=0;k<n_w_nodal_type;k++)
+        {
+
+         // Normalisation factor for outer unit normal
+         double norm=sqrt(drdzeta[0]*drdzeta[0]+
+                          drdzeta[1]*drdzeta[1]);
+     
+         
+         // Read out samples of basis function and its normal derivative
+         psi_n_sample[count][i_test]=psi_n_w(j,k);
+         dpsidn_n_sample[count][i_test]=
+          (  dpsi_n_wdxi(j,k,0)*drdzeta[1]
+             -dpsi_n_wdxi(j,k,1)*drdzeta[0])/norm ;
+         
+         // *(nodal_file_pt[count]) << interp_x[0] << " " // 1
+         //                         << interp_x[1] << " " // 2
+         //                         << r_from_boundary[0] << " " // 3 
+         //                         << r_from_boundary[1] << " " // 4
+         //                         <<  drdzeta[1]/norm << " " // 5 
+         //                         << -drdzeta[0]/norm << " " // 6
+         //                         << s << " "  // 7
+         //                         << psi_n_w(j,k) << " " // 8
+         //                         << (  dpsi_n_wdxi(j,k,0)*drdzeta[1]
+         //                               -dpsi_n_wdxi(j,k,1)*drdzeta[0])/norm << " "// 9 (dpsi/dn)
+         //                         << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
+         //                         << s - 2.0*s*s + s*s*s << " " // 11
+         //                         << 3.0*s*s - 2.0*s*s*s << " " // 12
+         //                         << -s*s + s*s*s << " " // 13
+         //                         << std::endl;
+         
+         count++;
+        }
+      }
+     
+     
+     // Internal (bubble) basis functions
+     count=0;
+     for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
+      {
+       double norm=sqrt(drdzeta[0]*drdzeta[0]+
+                        drdzeta[1]*drdzeta[1]);
+       
+       // Read out samples of basis function and its normal derivative
+       psi_i_sample[count][i_test]=psi_i_w(k_type);
+       dpsidn_i_sample[count][i_test]=
+        (  dpsi_i_wdxi(k_type,0)*drdzeta[1]
+           -dpsi_i_wdxi(k_type,1)*drdzeta[0])/norm ;
+
+       
+       // *(internal_file_pt[count])  << interp_x[0] << " " // 1
+       //                               << interp_x[1] << " " // 2
+       //                               << r_from_boundary[0] << " " // 3 
+       //                               << r_from_boundary[1] << " " // 4
+       //                               <<  drdzeta[1]/norm << " " // 5 
+       //                               << -drdzeta[0]/norm << " " // 6
+       //                               << s << " "  // 7
+       //                               << psi_i_w(k_type) << " " // 8
+       //                               << (   dpsi_i_wdxi(k_type,0)*drdzeta[1]
+       //                                      -dpsi_i_wdxi(k_type,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
+       //                               << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
+       //                               << s - 2.0*s*s + s*s*s << " " // 11
+       //                               << 3.0*s*s - 2.0*s*s*s << " " // 12
+       //                               << -s*s + s*s*s << " " // 13
+       //                               << std::endl;
+       
+       count++;
+      }
+
+     // hierher could/should also check boundary interpolation (geometrically)
+     
+    }
+
+   
+   // Check polynomial order of quantities along edge
+   unsigned max_degree=10;
+   int likely_degree=0;
+   unsigned count=0;
+   Vector<std::pair<double,double>> s_and_f(n_test);
+   for (unsigned j=0;j<n_w_node;j++)
+    { 
+     for (unsigned k=0;k<n_w_nodal_type;k++)
+      {
+       for (unsigned i=0;i<n_test;i++)
+        {
+         s_and_f[i]=std::make_pair(s_sample[i],psi_n_sample[count][i]);
+        }
+       likely_degree=PolynomialChecker::most_likely_polynomial_degree
+        (s_and_f,max_degree);
+       if (likely_degree==-1) oomph_info << BOLD_RED;
+       oomph_info << "Along edge, nodal basis function j,k "
+                  << j << " " << k
+                  << " is likely to be a polynomial of degree "
+                  << likely_degree << RESET << std::endl;
+       
+       for (unsigned i=0;i<n_test;i++)
+        {
+         s_and_f[i]=std::make_pair(s_sample[i],dpsidn_n_sample[count][i]);
+        }
+       likely_degree=PolynomialChecker::most_likely_polynomial_degree
+        (s_and_f,max_degree);
+       if (likely_degree==-1) oomph_info << BOLD_RED;
+       oomph_info << "Along edge, normal deriv of nodal basis function j,k "
+                  << j << " " << k
+                  << " is likely to be a polynomial of degree "
+                  << likely_degree << RESET << std::endl;
+       
+       count++;
+      }
+    }
+   
+   oomph_info << std::endl;
+   
+   count=0;
+   for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
+    {
+     for (unsigned i=0;i<n_test;i++)
+      {
+       s_and_f[i]=std::make_pair(s_sample[i],psi_i_sample[count][i]);
+      }
+     likely_degree=PolynomialChecker::most_likely_polynomial_degree
+      (s_and_f,max_degree);
+     if (likely_degree==-1) oomph_info << BOLD_RED;
+     oomph_info << "Along edge, internal basis function k "
+                << k_type
+                << " is likely to be a polynomial of degree "
+                << likely_degree << RESET << std::endl;
+     
+     for (unsigned i=0;i<n_test;i++)
+      {
+       s_and_f[i]=std::make_pair(s_sample[i],dpsidn_i_sample[count][i]);
+      }
+     likely_degree=PolynomialChecker::most_likely_polynomial_degree
+      (s_and_f,max_degree);
+     if (likely_degree==-1) oomph_info << BOLD_RED;
+     oomph_info << "Along edge, normal deriv of internal basis function k "
+                << k_type
+                << " is likely to be a polynomial of degree "
+                << likely_degree << RESET << std::endl;
+     
+     
+     count++;
+    }
    
    
-// // Plot all basis functions
-//    if (plot_em)
-//     {
-//      // Tecplot header info from some generic triangle element
-//      TElement<2,2>* aux_el_pt= new TElement<2,2>;
-//      unsigned nplot=100;
-//      for (unsigned i=0;i<n_interpolation_test;i++)
-//       { 
-//        sprintf(filename,"%s/test_basic_basis%i.dat",
-//                dir_name_for_output.c_str(),i);
-//        some_file.open(filename);
-       
-//        // Tecplot header info
-//        some_file << aux_el_pt->tecplot_zone_string(nplot);
-       
-//        // Loop over plot points
-//        Vector<double> s_plot(2);
-//        unsigned num_plot_points = aux_el_pt->nplot_points(nplot);
-//        for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
-//         {
-//          // Get local coordinates of plot point
-//          aux_el_pt->get_s_plot(iplot, nplot, s_plot);
-         
-//          Shape psi(n_interpolation_test);
-//          b_pt->full_basic_polynomials(s_plot,psi);
-//          DShape dpsi(n_interpolation_test,2); // first derivs
-//          b_pt->dfull_basic_polynomials(s_plot,dpsi);
-//          DShape d2psi(n_interpolation_test,3); // 2nd derivs xx, xy, yy
-//          b_pt->d2full_basic_polynomials(s_plot,d2psi);
-         
-//          some_file << s_plot[0] << " "
-//                    << s_plot[1] << " ";
-//          some_file << psi[i] << " ";
-//          some_file << dpsi(i,0) << " "
-//                    << dpsi(i,1) << " ";
-//          some_file << d2psi(i,0) << " "
-//                    << d2psi(i,1) << " "
-//                    << d2psi(i,2) << " ";
-//          some_file << std::endl;
-//         }
-       
-//        // Write tecplot footer (e.g. FE connectivity lists)
-//        aux_el_pt->write_tecplot_zone_footer(some_file, nplot);
-//        some_file.close();
-//       }
+
+   
+  
+  // // Write tecplot footer (e.g. FE connectivity lists) & close
+  // count=0;
+  // for (unsigned j=0;j<n_w_node;j++)
+  //  { 
+  //   for (unsigned k=0;k<n_w_nodal_type;k++)
+  //    {
+  //     if (do_curved_edge==0)
+  //      {
+  //       aux_el_pt->write_tecplot_zone_footer(*(nodal_file_pt[count]), nplot);
+  //      }
+  //     nodal_file_pt[count]->close();
+  //     delete nodal_file_pt[count];
+  //     count++;
+  //    }
+  //  }
+  // count=0;
+  // for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
+  //  {       
+  //   if (do_curved_edge==0)
+  //    {
+  //     aux_el_pt->write_tecplot_zone_footer(*(internal_file_pt[count]), nplot);
+  //    }
+  //   internal_file_pt[count]->close();
+  //   delete internal_file_pt[count];
+  //   count++;
+  //  }
      
-//      delete aux_el_pt;
-//      aux_el_pt=0;
-     
-//      // oomph_info << "\n\nPlot of basis functions done! Now do: " << std::endl;
-//      // oomph_info << "oomph-convert -z test_basic_basis*dat" << std::endl;
-//      // oomph_info << "makePvd test_basic_basis test_basic_basis.pvd" << std::endl;
-//      // oomph_info << "oomph-convert -p2 test_points.dat " << std::endl;
-//      // oomph_info << "paraview --state test_basic_basis.pvsm " << std::endl;
-//      // oomph_info << std::endl;
-//     }
   }
  }
 }
@@ -3138,28 +3340,55 @@ int main(int argc, char** argv)
   //------------------------
   {
 
-   // Sample points
-   Vector<double> s = {0.0,1.0,2.0,3.0,4.0,5.0};
-   Vector<double> f;
-   for(double x : s)
-    {
-     f.push_back(2 + 3*x + x*x*x); 
-    }
-   unsigned degree=3;
-   bool ok =  PolynomialChecker::is_polynomial_of_degree(s, f, degree);
-   
-   if (ok)
-    {
-     std::cout << "Pass\n";
-    }
-   else
-    {
-     std::cout << "Fail\n";
-    }
-  }
-  exit(0);
+   bool failed=false;
 
+   oomph_info << BOLD_BLUE
+              << "\nTest polynomial degree checker:\n"
+              << "===============================\n"
+              << RESET << std::endl;
    
+   // Sample points
+   unsigned nsample=100;
+   Vector<std::pair<double,double>> s_and_f(nsample);
+
+   // Check (non-constant) polynomials of various degrees 
+   unsigned max_degree=10;
+   for (unsigned degree=0;degree<max_degree;degree++)
+    {
+     for (unsigned i=0;i<nsample;i++)
+      {
+       // go backwards in s to show that order doesn't matter.
+       double s=1.0-double(i)/double(nsample);
+       s_and_f[i].first=s;
+       s_and_f[i].second = 2.0+
+        3.0*pow(s,degree/3)+
+        4.0*pow(s,degree/2)+
+        5.0*pow(s,degree);
+      }
+     
+     
+     // Check up to max degree
+     int likely_degree=PolynomialChecker::most_likely_polynomial_degree
+      (s_and_f,max_degree);
+     
+     if (int(degree)!=likely_degree)
+      {
+       failed=true;
+       oomph_info << "Actual/most likely degree of polynomial: "
+                  << degree << " " << likely_degree << std::endl;
+       oomph_info << BOLD_RED << "Fail! " << RESET << std::endl;
+      }
+     
+    }
+
+   if (!failed)
+    {
+     oomph_info << BOLD_GREEN << "Passed " << RESET << std::endl;
+    }
+   oomph_info << std::endl;
+   
+  }
+
   // Test 1: From the very bottom: Monomials are OK
   validate_monomials_to_basic_basis_functions<5>();
   validate_monomials_to_basic_basis_functions<3>();
