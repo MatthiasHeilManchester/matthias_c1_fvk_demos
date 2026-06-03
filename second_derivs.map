@@ -1,0 +1,42 @@
+with(LinearAlgebra):
+with(CodeGeneration):
+assume(r,real);
+assume(s,real);
+assume(r_1(s),real);
+assume(r_2(s),real);    
+
+r:=Vector([r_1(s),r_2(s)]);
+
+t_aux:=diff(r,s);
+
+t:=simplify(t_aux/sqrt(t_aux[1]^2+t_aux[2]^2));
+
+n:=Vector([t[2],-t[1]]);
+
+
+dt_ds:=diff(t,s);
+dn_ds:=diff(n,s);
+
+
+rename:=proc(v)
+        v1:=subs(diff(r_1(s),s$2)=d2rds2[1],v):
+        v2:=subs(diff(r_2(s),s$2)=d2rds2[2],v1):
+        v3:=subs(diff(r_1(s),s)=drds[1],v2):
+        v4:=subs(diff(r_2(s),s)=drds[2],v3):
+        v4;
+end proc;
+
+
+renamed_n:=rename(n);
+renamed_t:=rename(t);
+renamed_dnds:=rename(dn_ds);
+renamed_dtds:=rename(dt_ds);
+
+C(renamed_t[1], resultname="t0");
+C(renamed_t[2], resultname="t1");
+C(renamed_n[1], resultname="n0");
+C(renamed_n[2], resultname="n1");
+C(renamed_dtds[1], resultname="dtds0");
+C(renamed_dtds[2], resultname="dtds1");
+C(renamed_dnds[1], resultname="dnds0");
+C(renamed_dnds[2], resultname="dnds1");

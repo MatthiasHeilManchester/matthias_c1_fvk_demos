@@ -964,19 +964,11 @@ public:
  /// Doc the solution
  void doc_solution(bool steady = true);
 
-
  /// Validate all basis functions for curved bell
  void validate_curved_bell_and_bubble_basis_functions();
  
  /// Plot all basis functions for curved bell
  void plot_curved_bell_and_bubble_basis_functions();
- 
-
- /// Validate interpolated_x
- void validate_interpolated_x(const std::string&
-                              dir_name_for_output,
-                              const unsigned& m_poly_actual_boundary,
-                              const unsigned& boundary_order);
  
  /// Doc/check boundary coordinates
  void doc_boundary_coords()
@@ -1475,7 +1467,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_func
  char filename[100];
  
 // Test & plot 'em
- bool plot_em=true;
  std::string dir_name_for_output=Doc_info.directory();
  
  // Find a curved element on the outer boundary
@@ -1486,26 +1477,16 @@ void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_func
    // Get pointer to bulk element adjacent to b
    ELEMENT* el_pt = dynamic_cast<ELEMENT*>(
     Bulk_mesh_pt->boundary_element_pt(b,e));
-
-   if (plot_em)
-    {
-     sprintf(filename,"%s/test_curved_element.dat",
-             dir_name_for_output.c_str());
-     some_file.open(filename);
-     
-     // Output the lot
-     unsigned nplot=30;
-     el_pt->full_output(some_file,nplot);
-     
-     some_file.close();
-    }
-
-   // Get map to curvline boundaries of mesh
-   std::map<unsigned, C1CurviLine*> c1_curviline_boundary_pt =
-    Bulk_mesh_pt->c1_curviline_boundary_pt();
-   C1CurviLine* curviline_pt=c1_curviline_boundary_pt[b];
+   sprintf(filename,"%s/test_curved_element.dat",
+           dir_name_for_output.c_str());
+   some_file.open(filename);
    
-    
+   // Output the lot
+   unsigned nplot=30;
+   el_pt->full_output(some_file,nplot);
+   
+   some_file.close();
+      
    // Find the dimension of the element 
    const unsigned dim = el_pt->dim(); //2;
     
@@ -1548,282 +1529,151 @@ void UnstructuredC1PlateProblem<ELEMENT>::plot_curved_bell_and_bubble_basis_func
    DShape d2test_i_wdxi2(n_w_internal_type, n_2deriv);
     
     
-   // Plot all basis functions
-   if (plot_em)
-    {
-     // Tecplot header info from some generic triangle element
-     TElement<2,2>* aux_el_pt= new TElement<2,2>;
-     unsigned nplot=100;
-
-     /// Plot the whole thing or just the edge
-     for (unsigned do_curved_edge=0;do_curved_edge<2;do_curved_edge++)
-      {
-       
-       
-       // Nodal (curved Bell) basis functions
-       Vector<ofstream*> nodal_file_pt;
-       unsigned count=0;
-       for (unsigned j=0;j<n_w_node;j++)
-        { 
-         for (unsigned k=0;k<n_w_nodal_type;k++)
-          {
-           if (do_curved_edge==1)
-            {
-             sprintf(filename,"%s/test_curved_bell_curved_edge_nodal_basis%i.dat",
-                     dir_name_for_output.c_str(),count);
-            }
-           else
-            {
-             sprintf(filename,"%s/test_curved_bell_nodal_basis%i.dat",
-                     dir_name_for_output.c_str(),count);
-            }
-           nodal_file_pt.push_back(new ofstream);
-           nodal_file_pt[count]->open(filename);
-           
-           // Tecplot header info
-           if (do_curved_edge==0)
-            {
-             *(nodal_file_pt[count]) << aux_el_pt->tecplot_zone_string(nplot);
-            }
-           count++;
-          }
-        }
-       
-       
-       // Internal (bubble) basis
-       Vector<ofstream*> internal_file_pt;
-       count=0;
-       for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
-        {
-         if (do_curved_edge==1)
-          {
-           sprintf(filename,"%s/test_curved_bell_curved_edge_bubble_basis%i.dat",
-                   dir_name_for_output.c_str(),count);
-          }
-         else
-          {
-           sprintf(filename,"%s/test_curved_bell_bubble_basis%i.dat",
-                   dir_name_for_output.c_str(),count);
-          }
-         internal_file_pt.push_back(new ofstream);
-         internal_file_pt[count]->open(filename);
-         
-         // Tecplot header info
-         if (do_curved_edge==0)
-          {
-           *(internal_file_pt[count]) << aux_el_pt->tecplot_zone_string(nplot);
-          }
-         count++;
-        }
-    
-     
-
-       // Only used for curved edge check
-       Vector<double> r_from_boundary(2,0.0);
-       Vector<double> drdzeta(2,0.0);
-       Vector<double> zeta(1);
-                             
-       // Loop over plot points
-       Vector<double> s_plot(2);
-       unsigned num_plot_points = aux_el_pt->nplot_points(nplot);
-       for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
-        {
-         // Get local coordinates of plot point
-         if (do_curved_edge==0)
-          {
-           aux_el_pt->get_s_plot(iplot, nplot, s_plot);
-          }
-         else
-          {
-           s_plot[0]=double(iplot)/double(num_plot_points-1);
-           s_plot[1]=1.0-s_plot[0];
-          
-
-           /// Position r as fct of zeta from curvilinear boundary representation
-           zeta[0]=el_pt->bernadou_element_basis_pt()->get_s_ubar()+
-            s_plot[1]*(el_pt->bernadou_element_basis_pt()->get_s_obar()-
-                       el_pt->bernadou_element_basis_pt()->get_s_ubar());
-           curviline_pt->position(zeta,r_from_boundary);
+   // Tecplot header info from some generic triangle element
+   TElement<2,2>* aux_el_pt= new TElement<2,2>;
    
-           /// Derivative of position Vector w.r.t. to zeta:
-           curviline_pt->dposition(zeta, drdzeta);
-          }
-
-         // Get plot point
-         Vector<double> interp_x(dim, 0.0);
-         el_pt->interpolated_x(s_plot, interp_x);
-
+   // Nodal (curved Bell) basis functions
+   Vector<ofstream*> nodal_file_pt;
+   unsigned count=0;
+   for (unsigned j=0;j<n_w_node;j++)
+    { 
+     for (unsigned k=0;k<n_w_nodal_type;k++)
+      {
+       sprintf(filename,"%s/test_curved_bell_nodal_basis%i.dat",
+               dir_name_for_output.c_str(),count);         
+       nodal_file_pt.push_back(new ofstream);
+       nodal_file_pt[count]->open(filename);
        
-         // Call the derivatives of the shape and test functions for the out of
-         // plane unknown
-         //double J =
-          el_pt->d2basis_and_d2test_w_eulerian_foeppl_von_karman(s_plot,
-                                                                 psi_n_w,
-                                                                 psi_i_w,
-                                                                 dpsi_n_wdxi,
-                                                                 dpsi_i_wdxi,
-                                                                 d2psi_n_wdxi2,
-                                                                 d2psi_i_wdxi2,
-                                                                 test_n_w,
-                                                                 test_i_w,
-                                                                 dtest_n_wdxi,
-                                                                 dtest_i_wdxi,
-                                                                 d2test_n_wdxi2,
-                                                                 d2test_i_wdxi2);
-
-
-         count=0;
-         for (unsigned j=0;j<n_w_node;j++)
-          { 
-           for (unsigned k=0;k<n_w_nodal_type;k++)
-            {
-             if (do_curved_edge==0)
-              {
-               *(nodal_file_pt[count]) << interp_x[0] << " "
-                                       << interp_x[1] << " "
-                                       << psi_n_w(j,k) << " "
-                                       << dpsi_n_wdxi(j,k,0) << " "
-                                       << dpsi_n_wdxi(j,k,1) << " "
-                                       << d2psi_n_wdxi2(j,k,0) << " "
-                                       << d2psi_n_wdxi2(j,k,1) << " "
-                                       << d2psi_n_wdxi2(j,k,2) << " "
-                                       << s_plot[0] << " "
-                                       << s_plot[1] << " " 
-                                       << std::endl;
-              }
-             else
-              {
-
-               // * grad psi \cdot n should be zero for most basis fcts
-               //   and vary cubically for the others (as in the Hermite basis, already added); so there
-               //   are four nonzero functions.
-               //
-               //   Normal derivatives should be non-zero only for basis functions 1, 4, 7, 10
-               //   ERROR: 0, 2, 5, 6, 8, 11 should be zero but aren't
-               //          
-               //
-               // * psi should be zero for most basis fcts; the others should be a quintic basis
-               //   (i.e. interpolants for value, deriv, and second deriv, i.e. six values =
-               //    fifth order).
-               //
-               //   psi should be nonzero only for basis functions 0, 2, 5, 6, 8, 11 **CORRECT!**
-               // NOTE WE'RE DOING ROTATED BASES! SO WE'RE INTERPOLATING VALUE v, dv/dn, dv/dt,
-               // d^2v/dn^2, d^2v/dndt, d^2/dt^2
-               //
-               // NOTE: MAY NOT BE THE EXACT HERMITE POLYNOMIALS BECAUSE OF DIFFERENT PARAMETRISATION
-               // OF THE DEFORMED ELEMENT (WORK IN PROGRESS, REVISIT)
-               //
-               double norm=sqrt(drdzeta[0]*drdzeta[0]+
-                                drdzeta[1]*drdzeta[1]);
-               double s=s_plot[1];
-               *(nodal_file_pt[count]) << interp_x[0] << " " // 1
-                                       << interp_x[1] << " " // 2
-                                       << r_from_boundary[0] << " " // 3 
-                                       << r_from_boundary[1] << " " // 4
-                                       <<  drdzeta[1]/norm << " " // 5 
-                                       << -drdzeta[0]/norm << " " // 6
-                                       << s << " "  // 7
-                                       << psi_n_w(j,k) << " " // 8
-                                       << (  dpsi_n_wdxi(j,k,0)*drdzeta[1]
-                                            -dpsi_n_wdxi(j,k,1)*drdzeta[0])/norm << " "// 9 (dpsi/dn)
-                                       << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
-                                       << s - 2.0*s*s + s*s*s << " " // 11
-                                       << 3.0*s*s - 2.0*s*s*s << " " // 12
-                                       << -s*s + s*s*s << " " // 13
-                                       << std::endl;
-              }             
-             count++;
-            }
-          }
+       // Tecplot header info
+       *(nodal_file_pt[count]) << aux_el_pt->tecplot_zone_string(nplot);
        
-         count=0;
-         for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
-          {
-           if (do_curved_edge==0)
-            {
-             *(internal_file_pt[count]) << interp_x[0] << " "
-                                        << interp_x[1] << " "
-                                        << psi_i_w(k_type) << " "
-                                        << dpsi_i_wdxi(k_type,0) << " "
-                                        << dpsi_i_wdxi(k_type,1) << " "
-                                        << d2psi_i_wdxi2(k_type,0) << " "
-                                        << d2psi_i_wdxi2(k_type,1) << " "
-                                        << d2psi_i_wdxi2(k_type,2) << " "
-                                        << s_plot[0] << " "
-                                        << s_plot[1] << " " 
-                                        << std::endl;
-            }
-           else
-            {
-             double norm=sqrt(drdzeta[0]*drdzeta[0]+
-                              drdzeta[1]*drdzeta[1]);
-             double s=s_plot[1];             
-             *(internal_file_pt[count])  << interp_x[0] << " " // 1
-                                         << interp_x[1] << " " // 2
-                                         << r_from_boundary[0] << " " // 3 
-                                         << r_from_boundary[1] << " " // 4
-                                         <<  drdzeta[1]/norm << " " // 5 
-                                         << -drdzeta[0]/norm << " " // 6
-                                         << s << " "  // 7
-                                         << psi_i_w(k_type) << " " // 8
-                                         << (   dpsi_i_wdxi(k_type,0)*drdzeta[1]
-                                              -dpsi_i_wdxi(k_type,1)*drdzeta[0])/norm << " " // 9 (dpsi/dn)
-                                         << 1.0 - 3.0*s*s + 2.0*s*s*s << " " // 10
-                                         << s - 2.0*s*s + s*s*s << " " // 11
-                                         << 3.0*s*s - 2.0*s*s*s << " " // 12
-                                         << -s*s + s*s*s << " " // 13
-                                         << std::endl;
-            }
-           count++;
-          }
-        }
-
+       count++;
+      }
+    }
+   
+   
+   // Internal (bubble) basis
+   Vector<ofstream*> internal_file_pt;
+   count=0;
+   for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
+    {
+     sprintf(filename,"%s/test_curved_bell_bubble_basis%i.dat",
+             dir_name_for_output.c_str(),count);
+     internal_file_pt.push_back(new ofstream);
+     internal_file_pt[count]->open(filename);
      
-       // Write tecplot footer (e.g. FE connectivity lists) & close
-       count=0;
-       for (unsigned j=0;j<n_w_node;j++)
-        { 
-         for (unsigned k=0;k<n_w_nodal_type;k++)
-          {
-           if (do_curved_edge==0)
-            {
-             aux_el_pt->write_tecplot_zone_footer(*(nodal_file_pt[count]), nplot);
-            }
-           nodal_file_pt[count]->close();
-           delete nodal_file_pt[count];
-           count++;
-          }
-        }
-       count=0;
-       for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
-        {       
-         if (do_curved_edge==0)
-          {
-           aux_el_pt->write_tecplot_zone_footer(*(internal_file_pt[count]), nplot);
-          }
-         internal_file_pt[count]->close();
-         delete internal_file_pt[count];
+     // Tecplot header info
+     *(internal_file_pt[count]) << aux_el_pt->tecplot_zone_string(nplot);
+     
+     count++;
+    }
+   
+   
+   
+   // Only used for curved edge check
+   Vector<double> r_from_boundary(2,0.0);
+   Vector<double> drdzeta(2,0.0);
+   Vector<double> zeta(1);
+   
+   // Loop over plot points
+   Vector<double> s_plot(2);
+   unsigned num_plot_points = aux_el_pt->nplot_points(nplot);
+   for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
+    {
+     // Get local coordinates of plot point
+     aux_el_pt->get_s_plot(iplot, nplot, s_plot);
+     
+     // Get plot point
+     Vector<double> interp_x(dim, 0.0);
+     el_pt->interpolated_x(s_plot, interp_x);
+     
+     // Call the derivatives of the shape and test functions for the out of
+     // plane unknown
+     //double J =
+     el_pt->d2basis_and_d2test_w_eulerian_foeppl_von_karman(s_plot,
+                                                            psi_n_w,
+                                                            psi_i_w,
+                                                            dpsi_n_wdxi,
+                                                            dpsi_i_wdxi,
+                                                            d2psi_n_wdxi2,
+                                                            d2psi_i_wdxi2,
+                                                            test_n_w,
+                                                            test_i_w,
+                                                            dtest_n_wdxi,
+                                                            dtest_i_wdxi,
+                                                            d2test_n_wdxi2,
+                                                            d2test_i_wdxi2);
+     
+     
+     count=0;
+     for (unsigned j=0;j<n_w_node;j++)
+      { 
+       for (unsigned k=0;k<n_w_nodal_type;k++)
+        {
+         *(nodal_file_pt[count]) << interp_x[0] << " "
+                                 << interp_x[1] << " "
+                                 << psi_n_w(j,k) << " "
+                                 << dpsi_n_wdxi(j,k,0) << " "
+                                 << dpsi_n_wdxi(j,k,1) << " "
+                                 << d2psi_n_wdxi2(j,k,0) << " "
+                                 << d2psi_n_wdxi2(j,k,1) << " "
+                                 << d2psi_n_wdxi2(j,k,2) << " "
+                                 << s_plot[0] << " "
+                                 << s_plot[1] << " " 
+                                 << std::endl;
+         
          count++;
         }
-     
       }
      
-     delete aux_el_pt;
-     aux_el_pt=0;
-     
-     oomph_info << "\n\nPlot of curved bell basis functions done! Now do: " << std::endl;
-     oomph_info << "cd RESLT" << std::endl;
-     oomph_info << "gnuplot -c ../validate_dpsidn_bubble.gp" << std::endl;
-     oomph_info << "gnuplot -c ../validate_dpsidn_nodal.gp" << std::endl;
-     oomph_info << "gnuplot -c ../validate_psi_nodal.gp" << std::endl;
-     oomph_info << "gnuplot -c ../validate_psi_bubble.gp" << std::endl;
-     oomph_info << "display validate*png" << std::endl;
-     oomph_info << std::endl;
+     count=0;
+     for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
+      {
+       *(internal_file_pt[count]) << interp_x[0] << " "
+                                  << interp_x[1] << " "
+                                  << psi_i_w(k_type) << " "
+                                  << dpsi_i_wdxi(k_type,0) << " "
+                                  << dpsi_i_wdxi(k_type,1) << " "
+                                  << d2psi_i_wdxi2(k_type,0) << " "
+                                  << d2psi_i_wdxi2(k_type,1) << " "
+                                  << d2psi_i_wdxi2(k_type,2) << " "
+                                  << s_plot[0] << " "
+                                  << s_plot[1] << " " 
+                                  << std::endl;
+       count++;
+      }
     }
+   
+   
+   // Write tecplot footer (e.g. FE connectivity lists) & close
+   count=0;
+   for (unsigned j=0;j<n_w_node;j++)
+    { 
+     for (unsigned k=0;k<n_w_nodal_type;k++)
+      {
+       aux_el_pt->write_tecplot_zone_footer(*(nodal_file_pt[count]), nplot);            
+       nodal_file_pt[count]->close();
+       delete nodal_file_pt[count];
+       count++;
+      }
+    }
+   count=0;
+   for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
+    {       
+     aux_el_pt->write_tecplot_zone_footer(*(internal_file_pt[count]), nplot);
+     internal_file_pt[count]->close();
+     delete internal_file_pt[count];
+     count++;
+    }
+   
+   delete aux_el_pt;
+   aux_el_pt=0;
+   
   }
  }
 }
-   
+
+
 
 //========================================================================
 /// Validate all basis functions for curved bell
@@ -1890,6 +1740,40 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
 
    oomph_info << "n_w_internal_type =  " << n_w_internal_type << std::endl;
     
+   // Which edge is the curved one?
+   unsigned curved_edge=
+    el_pt->bernadou_element_basis_pt()->curved_edge();
+   oomph_info << "curved edge = " << curved_edge << std::endl;
+
+   // given our enumeration, the vertex node that's not on the
+   // boundary is the same as the ID of the curved edge
+   unsigned vertex_not_on_boundary=curved_edge;
+            
+   // Loop over vertex nodes to figure out which ones are on the boundary
+   for (unsigned j=0;j<3;j++)
+    {
+     Node* nod_pt=el_pt->node_pt(j);
+     oomph_info << "Vertex node " << j << " at "
+                << nod_pt->x(0) << " "
+                << nod_pt->x(1) << " ";
+     if (nod_pt->is_on_boundary())
+      {
+       oomph_info << " is on boundary." << std::endl;
+      }
+     else
+      {
+       oomph_info << " is not on boundary." << std::endl;
+      }
+     Vector<double> s(2);
+     el_pt->local_coordinate_of_node(j,s);
+     Vector<double> interp_x(2);
+     el_pt->interpolated_x(s,interp_x);
+     oomph_info << "Coord via interpolated_x: "
+                << interp_x[0] << " "
+                << interp_x[1] << " "
+                << std::endl;
+    }
+   
    // Out-of-plane local basis & test functions (bubble and nodal)
    // ------------------------------------------------------------
    // Nodal basis & test functions
@@ -1974,7 +1858,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    Shape psi(n_interpolation_test);
    
    // Linearly enumerated first derivs (x,y) or (n,t)
-     DShape dpsi(n_interpolation_test,2);
+   DShape dpsi(n_interpolation_test,2);
    
    // Linearly enumerated  2nd derivs (xx, xy, yy) or (or nn, nt,tt) 
    DShape d2psi(n_interpolation_test,3);
@@ -1999,6 +1883,9 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    
    // Loop over the dofs
    unsigned interpolation_condition_count=0;
+
+   // Count vertex nodes
+   unsigned vertex_count=0;
    
    // (class of dof: a,[b,d],e)
    for (auto dof_class : test_point)
@@ -2043,7 +1930,113 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
            some_file << (dof_location_and_tests.first)[i] << " ";
           }
         }
+
+
+
+       Vector<double> unit_normal(2);
+       Vector<double> unit_tangent(2);
+       Vector<double> dunit_normal_ds(2);
+       Vector<double> dunit_tangent_ds(2);
        
+       //#################################################################
+       // Setup quantities needed to transform derivatives at vertices
+       // into derivatives w.r.t. n and t. 
+       bool transform_derivs_to_normal_and_tangent=false;
+       
+       // No transformation if the element hasn't been rotated
+       if (int(curved_edge) == C1PlateHelper::CurvedEdgeEnumeration::none)
+        {
+         oomph_info << "element not rotated! " << std::endl;
+         transform_derivs_to_normal_and_tangent=false;
+        }
+       else 
+        {
+         oomph_info << "element rotated! " << std::endl;
+         // Only transform derivatives on the vertices...
+         if (dof_class.first=="a")
+          {
+           ///... that are on the boundary
+           if (vertex_count==vertex_not_on_boundary)
+            {
+             transform_derivs_to_normal_and_tangent=false;
+            }
+           else
+            {
+             transform_derivs_to_normal_and_tangent=true;
+             
+             // Local coordinate in bulk element
+             Vector<double> s_bulk(2);
+             for (unsigned i=0;i<2;i++)
+              {
+               s_bulk[i]=(dof_location_and_tests.first)[i];
+              }
+             double s_frac_along_edge=0.0;
+             if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::zero)
+              {
+               s_frac_along_edge=1.0-s_bulk[1];
+              }
+             else if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::one)
+              {
+               s_frac_along_edge=s_bulk[0];
+              }
+             else if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::two)
+              {
+               s_frac_along_edge=s_bulk[1];
+              }
+             else
+              {
+               std::cout << "hierher never get here!" << std::endl;
+               abort();
+              }
+             
+             // Position r as fct of zeta from curvilinear boundary representation
+             Vector<double> r_from_boundary(2,0.0);
+             Vector<double> drdzeta(2,0.0);
+             Vector<double> zeta(1);
+             zeta[0]=el_pt->bernadou_element_basis_pt()->get_s_ubar()+
+              s_frac_along_edge*(el_pt->bernadou_element_basis_pt()->get_s_obar()-
+                                 el_pt->bernadou_element_basis_pt()->get_s_ubar());
+             curviline_pt->position(zeta,r_from_boundary);
+             
+             // Derivative of position Vector w.r.t. to zeta:
+             curviline_pt->dposition(zeta, drdzeta);
+             
+             // hierher get second derivatives too!
+             
+             double norm=sqrt(drdzeta[0]*drdzeta[0]+
+                              drdzeta[1]*drdzeta[1]);
+             unit_tangent[0]=drdzeta[0]/norm;
+             unit_tangent[1]=drdzeta[1]/norm;
+             unit_normal[0]= unit_tangent[1];
+             unit_normal[1]=-unit_tangent[0];
+             
+             // Get plot point
+             Vector<double> interp_x(dim, 0.0);
+             el_pt->interpolated_x(s_bulk, interp_x);
+             
+             
+             // check
+             double pos_error=sqrt(pow(r_from_boundary[0]-interp_x[0],2)+
+                                   pow(r_from_boundary[1]-interp_x[1],2));
+             oomph_info << "Dof " << dof_class.first << count
+                        << " is on boundary with pos error: "
+                        << pos_error<< std::endl;
+             oomph_info << "Normal  : "
+                        << unit_normal[0] << " "
+                        << unit_normal[1] << " "
+                        << std::endl;
+             oomph_info << "Tangent : "
+                        << unit_tangent[0] << " "
+                        << unit_tangent[1] << " "
+                        << std::endl;
+             
+            }
+           // Bump
+           vertex_count++;
+          }
+        }
+       //#################################################################
+      
        
        // Call the derivatives of the shape and test functions
        // Note: these are the derivatives w.r.t. to the cartesian
@@ -2092,13 +2085,38 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
          for (unsigned k=0;k<n_w_nodal_type;k++)
           {
            psi(counter)=psi_n_w(j,k);
-           
-           // MH TO DO: TRAMSLATE INTO NORMAL AND TANGENT DERIVATIVES AND CHECK THEM!
-           dpsi(counter,0)=dpsi_n_wdxi(j,k,0);
-           dpsi(counter,1)=dpsi_n_wdxi(j,k,1);
-           d2psi(counter,0)=d2psi_n_wdxi2(j,k,0);
-           d2psi(counter,1)=d2psi_n_wdxi2(j,k,1);
-           d2psi(counter,2)=d2psi_n_wdxi2(j,k,2);
+           if (transform_derivs_to_normal_and_tangent)
+            {
+             // d/dn
+             dpsi(counter,0)=
+              dpsi_n_wdxi(j,k,0)*unit_normal[0]+
+              dpsi_n_wdxi(j,k,1)*unit_normal[1];
+             // d/dt
+             dpsi(counter,1)=
+              dpsi_n_wdxi(j,k,0)*unit_tangent[0]+
+              dpsi_n_wdxi(j,k,1)*unit_tangent[1];
+
+             // hierher not yet done.
+             // d^2/dn^2
+             d2psi(counter,0)=d2psi_n_wdxi2(j,k,0);
+             // d^2/dndt
+             d2psi(counter,1)=d2psi_n_wdxi2(j,k,1);
+             // d^2/dt^2
+             d2psi(counter,2)=d2psi_n_wdxi2(j,k,2);
+            }
+           else
+            {
+             // d/dx
+             dpsi(counter,0)=dpsi_n_wdxi(j,k,0);
+             // d/dy
+             dpsi(counter,1)=dpsi_n_wdxi(j,k,1);
+             // d^2/dx^2
+             d2psi(counter,0)=d2psi_n_wdxi2(j,k,0);
+             // d^2/dxdy
+             d2psi(counter,1)=d2psi_n_wdxi2(j,k,1);
+             // d^2/dy^2
+             d2psi(counter,2)=d2psi_n_wdxi2(j,k,2);
+            }
            counter++;
           }
         }
@@ -2106,16 +2124,41 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        for (unsigned j=0;j<n_w_internal_type;j++)
         {
          psi(counter)=psi_i_w(j);
-         
-         // MH TO DO: TRAMSLATE INTO NORMAL AND TANGENT DERIVATIVES AND CHECK THEM!
-         dpsi(counter,0)=dpsi_i_wdxi(j,0);
-         dpsi(counter,1)=dpsi_i_wdxi(j,1);
-         d2psi(counter,0)=d2psi_i_wdxi2(j,0);
-         d2psi(counter,1)=d2psi_i_wdxi2(j,1);
-         d2psi(counter,2)=d2psi_i_wdxi2(j,2);
+         if (transform_derivs_to_normal_and_tangent)
+          {
+           // d/dn
+           dpsi(counter,0)=
+            dpsi_i_wdxi(j,0)*unit_normal[0]+
+            dpsi_i_wdxi(j,1)*unit_normal[1];
+           // d/dt
+           dpsi(counter,1)=
+            dpsi_i_wdxi(j,0)*unit_tangent[0]+
+            dpsi_i_wdxi(j,1)*unit_tangent[1];
+
+           // hierher not yet done.
+           // d^2/dn^2
+           d2psi(counter,0)=d2psi_i_wdxi2(j,0);
+           // d^2/dndt
+           d2psi(counter,1)=d2psi_i_wdxi2(j,1);
+           // d^2/dt^2
+           d2psi(counter,2)=d2psi_i_wdxi2(j,2);
+          }
+         else
+          {
+           // d/dx
+           dpsi(counter,0)=dpsi_i_wdxi(j,0);
+           // d/dy
+           dpsi(counter,1)=dpsi_i_wdxi(j,1);
+           // d^2/dx^2
+           d2psi(counter,0)=d2psi_i_wdxi2(j,0);
+           // d^2/dxdy
+           d2psi(counter,1)=d2psi_i_wdxi2(j,1);
+           // d^2/dy^2
+           d2psi(counter,2)=d2psi_i_wdxi2(j,2);
+          }
          counter++;
         }
-
+       
        
        // Loop over test types: dof_location_and_tests.second
        // is the vector whose strings tell us what quantity
@@ -2368,10 +2411,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    
    
    
-   // Which edge is the curved one?
-   unsigned curved_edge=
-    el_pt->bernadou_element_basis_pt()->curved_edge();
-   
    // Loop over test points along edge
    Vector<double> s_test(2);
    unsigned n_test = 15;
@@ -2579,6 +2618,9 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    
    // Cut-off for ignoring poly fit
    double poly_fit_cutoff=1.0e-12;
+
+   // Tolerance for poly fit (1e-12 by default)
+   double poly_fit_tol=1.0e-12;
    
    count=0;
    Vector<std::pair<double,double>> s_and_f(n_test);
@@ -2594,7 +2636,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
          max=std::max(std::abs(s_and_f[i].second),max);
         }
        likely_degree=PolynomialChecker::most_likely_polynomial_degree
-        (s_and_f,max_degree);
+        (s_and_f,max_degree,poly_fit_tol);
        if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
        oomph_info << "Along edge, nodal basis function j,k "
                   << j << " " << k 
@@ -2617,7 +2659,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
          max=std::max(s_and_f[i].second,max);
         }
        likely_degree=PolynomialChecker::most_likely_polynomial_degree
-        (s_and_f,max_degree);
+        (s_and_f,max_degree,poly_fit_tol);
        if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
        oomph_info << "Along edge, normal deriv of nodal basis function j,k "
                   << j << " " << k
@@ -2649,7 +2691,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        max=std::max(s_and_f[i].second,max);
       }
      likely_degree=PolynomialChecker::most_likely_polynomial_degree
-      (s_and_f,max_degree);
+      (s_and_f,max_degree,poly_fit_tol);
      if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
      oomph_info << "Along edge, internal basis function k "
                 << k_type
@@ -2672,7 +2714,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        max=std::max(s_and_f[i].second,max);
       }
      likely_degree=PolynomialChecker::most_likely_polynomial_degree
-      (s_and_f,max_degree);
+      (s_and_f,max_degree,poly_fit_tol);
      if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
      oomph_info << "Along edge, normal deriv of internal basis function k "
                 << k_type
@@ -2694,155 +2736,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
   }
  }
 }
-
-
-
-//========================================================================
-/// Validate interpolated_x. Should represent third or fifth order polynomials
-/// exactly.
-//========================================================================
-template<class ELEMENT>
-void UnstructuredC1PlateProblem<ELEMENT>::validate_interpolated_x(
- const std::string& dir_name_for_output,
- const unsigned& m_poly_actual_boundary,
- const unsigned& boundary_order)
-{
-
- ofstream some_file;
- char filename[100];
- 
-// Test & plot 'em
- bool plot_em=true;
- if (dir_name_for_output=="") plot_em=false;
- if (plot_em)
-  {
-   sprintf(filename,"%s/test_poly_%i_bound_%i_interpolated_x.dat",
-           dir_name_for_output.c_str(),
-           m_poly_actual_boundary,
-           boundary_order);
-   some_file.open(filename);
-  
-
-   // Output the entire mesh
-   sprintf(filename,"%s/interpolated_x_mesh_plot_poly_%i_bound_%i_interpolated_x.dat",
-           dir_name_for_output.c_str(),
-           m_poly_actual_boundary,
-           boundary_order);
-   std::string fname=filename;
-   Bulk_mesh_pt->output(fname);
-  }
-
- 
- // Initialise
- double max_error=0.0;
- 
- // Loop over outer boundary
- unsigned b=Outer_boundary0;
- {
-  // loop over all of them
-  unsigned nelem=Bulk_mesh_pt->nboundary_element(b);
-  for (unsigned e=0;e<nelem;e++)
-   {
-    // Get pointer to bulk element adjacent to b
-    ELEMENT* el_pt = dynamic_cast<ELEMENT*>(
-     Bulk_mesh_pt->boundary_element_pt(b,e));
-    
-    // Get map to curvline boundaries of mesh
-    std::map<unsigned, C1CurviLine*> c1_curviline_boundary_pt =
-     Bulk_mesh_pt->c1_curviline_boundary_pt();
-    C1CurviLine* curviline_pt=c1_curviline_boundary_pt[b];
-    
-    // Only used for curved edge check
-    Vector<double> r_from_boundary(2,0.0);
-    Vector<double> zeta(1);
-    
-    // Which edge is the curved one?
-    unsigned curved_edge=
-     el_pt->bernadou_element_basis_pt()->curved_edge();
-          
-    // Loop over test points
-    Vector<double> s_plot(2);
-    unsigned num_plot_points = 100;
-    for (unsigned iplot = 0; iplot < num_plot_points; iplot++)
-     {
-
-      // Get local coordinates of plot point
-      double s_frac_along_edge=0.0;
-      if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::zero)
-       {
-        s_plot[0]=0.0;
-        s_plot[1]=1.0-double(iplot)/double(num_plot_points-1);
-        s_frac_along_edge=1.0-s_plot[1];
-       }
-      else if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::one)
-       {
-        s_plot[0]=double(iplot)/double(num_plot_points-1);
-        s_plot[1]=0.0;
-        s_frac_along_edge=s_plot[0];
-       }
-      else if (curved_edge==C1PlateHelper::CurvedEdgeEnumeration::two)
-       {
-        s_plot[0]=1.0-double(iplot)/double(num_plot_points-1);
-        s_plot[1]=1.0-s_plot[0];
-        s_frac_along_edge=s_plot[1];
-       }
-      else
-       {
-        std::cout << "hierher never get here!" << std::endl;
-        abort();
-       }
-      
-      /// Position r as fct of zeta from curvilinear boundary representation
-      zeta[0]=el_pt->bernadou_element_basis_pt()->get_s_ubar()+
-       s_frac_along_edge*(el_pt->bernadou_element_basis_pt()->get_s_obar()-
-                          el_pt->bernadou_element_basis_pt()->get_s_ubar());
-      curviline_pt->position(zeta,r_from_boundary);
-      
-      
-      // Get plot point
-      Vector<double> interp_x(2, 0.0);
-      el_pt->interpolated_x(s_plot, interp_x);
-      
-      // check
-      double error=sqrt(pow(r_from_boundary[0]-interp_x[0],2)+
-                        pow(r_from_boundary[1]-interp_x[1],2));
-      if (error>max_error) max_error=error;
-      
-      if (plot_em)
-       {
-        unsigned prec=17;
-        some_file << std::setprecision(prec) << r_from_boundary[0] << " "
-                  << std::setprecision(prec) << r_from_boundary[1] << " "
-                  << std::setprecision(prec) << interp_x[0] << " "
-                  << std::setprecision(prec) << interp_x[1] << " "
-                  << std::setprecision(prec) << zeta[0] << " "
-                  << std::endl;
-       }
-     }
-   }
- }
- 
- oomph_info << "Max. error interpolated_x(): " << max_error << std::endl;
- 
- 
- if (plot_em)
-  {
-   some_file.close();
-  }
- 
- 
- // oomph_info << "\n\nPlot of curved bell basis functions done! Now do: " << std::endl;
- // oomph_info << "cd RESLT"
- // oomph_info << "gnuplot -c ../validate_dpsidn_bubble.gp" << std::endl;
- // oomph_info << "gnuplot -c ../validate_dpsidn_nodal.gp" << std::endl;
- // oomph_info << "gnuplot -c ../validate_psi_nodal.gp" << std::endl;
- // oomph_info << "gnuplot -c ../validate_psi_bubble.gp" << std::endl;
- // oomph_info << "display validate*png" << std::endl;
- // oomph_info << std::endl;
- 
-}
-
-   
 
 
 
