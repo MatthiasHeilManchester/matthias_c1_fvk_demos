@@ -54,6 +54,9 @@ using MathematicalConstants::Pi;
 #define GREEN   "\033[32m"
 #define RESET   "\033[0m"
 
+
+
+
 // Random number between 0 and 1
 namespace Random
 {
@@ -1944,7 +1947,9 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        bool transform_derivs_to_normal_and_tangent=false;
        
        // No transformation if the element hasn't been rotated
-       if (int(curved_edge) == C1PlateHelper::CurvedEdgeEnumeration::none)
+       // hierher this doesn't do the job!
+       // if (int(curved_edge) == C1PlateHelper::CurvedEdgeEnumeration::none)
+       if (!Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
         {
          oomph_info << "element not rotated! " << std::endl;
          transform_derivs_to_normal_and_tangent=false;
@@ -1991,6 +1996,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
              
              // Position r as fct of zeta from curvilinear boundary representation
              Vector<double> r_from_boundary(2,0.0);
+             Vector<double> d2rdzeta2(2,0.0);
              Vector<double> drdzeta(2,0.0);
              Vector<double> zeta(1);
              zeta[0]=el_pt->bernadou_element_basis_pt()->get_s_ubar()+
@@ -2000,7 +2006,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
              
              // Derivative of position Vector w.r.t. to zeta:
              curviline_pt->dposition(zeta, drdzeta);
-             
+             curviline_pt->dposition(zeta, d2rdzeta2);
+
              // hierher get second derivatives too!
              
              double norm=sqrt(drdzeta[0]*drdzeta[0]+
