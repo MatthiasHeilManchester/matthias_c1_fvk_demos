@@ -19,10 +19,10 @@ dn_ds:=diff(n,s);
 
 
 rename:=proc(v)
-        v1:=subs(diff(r_1(s),s$2)=d2rds2[1],v):
-        v2:=subs(diff(r_2(s),s$2)=d2rds2[2],v1):
-        v3:=subs(diff(r_1(s),s)=drds[1],v2):
-        v4:=subs(diff(r_2(s),s)=drds[2],v3):
+        v1:=subs(diff(r_1(s),s$2)=d2rdzeta2[1],v):
+        v2:=subs(diff(r_2(s),s$2)=d2rdzeta2[2],v1):
+        v3:=subs(diff(r_1(s),s)=drdzeta[1],v2):
+        v4:=subs(diff(r_2(s),s)=drdzeta[2],v3):
         v4;
 end proc;
 
