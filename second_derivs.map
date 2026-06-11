@@ -1,17 +1,227 @@
 with(LinearAlgebra):
 with(CodeGeneration):
-assume(r,real);
-assume(s,real);
-assume(r_1(s),real);
-assume(r_2(s),real);    
+#assume(r,real);
+#assume(zeta,real);
+#assume(n,real);
+#assume(r_1(zeta),real);
+#assume(r_2(zeta),real);
 
-r:=Vector([r_1(s),r_2(s)]);
+# Boundary parametrisation
+R_pos:=Vector([R_1(zeta),R_2(zeta)]);
 
-t_aux:=diff(r,s);
+# Unit tangent
+t_aux:=diff(R_pos,zeta);
+unit_tangent:=simplify(t_aux/sqrt(t_aux[1]^2+t_aux[2]^2));
 
-t:=simplify(t_aux/sqrt(t_aux[1]^2+t_aux[2]^2));
+# Unit normal
+unit_normal:=Vector([unit_tangent[2],-unit_tangent[1]]);
 
-n:=Vector([t[2],-t[1]]);
+# Setup coordinate mapping
+x_mapped:=R_pos+n*unit_normal;
+
+
+###########################################################
+
+#------------------------------------------------------
+# normal derivative, df/dn, given df/dx and df/dy
+#------------------------------------------------------
+dfdn:=proc(dfdx,dfdy)
+        diff(x_mapped[1],n)*dfdx+
+        diff(x_mapped[2],n)*dfdy;
+end proc;
+
+#------------------------------------------------------
+# tangential derivative, df/dt, given df/dx and df/dy
+#------------------------------------------------------
+dfdzeta:=proc(dfdx,dfdy)
+        diff(x_mapped[1],zeta)*dfdx+
+        diff(x_mapped[2],zeta)*dfdy;
+end proc;
+
+#------------------------------------------------------
+# 2nd normal derivative, d^2f/dn2, given
+# df/dx, df/dy, d^2f/dx^2, d^2f/dxdy and d^2f/dxy
+#------------------------------------------------------
+d2fdn2:=proc(dfdx,dfdy,d2fdx2,d2fdxdy,d2fdy2)
+        diff(x_mapped[1],n,n)*dfdx+
+        diff(x_mapped[2],n,n)*dfdy+
+        diff(x_mapped[1],n)*diff(x_mapped[1],n)*d2fdx2+
+        diff(x_mapped[1],n)*diff(x_mapped[2],n)*d2fdxdy+
+        diff(x_mapped[2],n)*diff(x_mapped[1],n)*d2fdxdy+
+        diff(x_mapped[2],n)*diff(x_mapped[2],n)*d2fdy2;      
+end proc;
+
+#------------------------------------------------------
+# 2nd normal mixed derivative, d^2f/dndzeta, given
+# df/dx, df/dy, d^2f/dx^2, d^2f/dxdy and d^2f/dxy
+#------------------------------------------------------
+d2fdndzeta:=proc(dfdx,dfdy,d2fdx2,d2fdxdy,d2fdy2)
+        diff(x_mapped[1],n,zeta)*dfdx+
+        diff(x_mapped[2],n,zeta)*dfdy+
+        diff(x_mapped[1],n)*diff(x_mapped[1],zeta)*d2fdx2+
+        diff(x_mapped[1],n)*diff(x_mapped[2],zeta)*d2fdxdy+
+        diff(x_mapped[2],n)*diff(x_mapped[1],zeta)*d2fdxdy+
+        diff(x_mapped[2],n)*diff(x_mapped[2],zeta)*d2fdy2;      
+end proc;
+
+#------------------------------------------------------
+# 2nd tangential derivative, d^2f/dzeta2, given
+# df/dx, df/dy, d^2f/dx^2, d^2f/dxdy and d^2f/dxy
+#------------------------------------------------------
+d2fdzeta2:=proc(dfdx,dfdy,d2fdx2,d2fdxdy,d2fdy2)
+        diff(x_mapped[1],zeta,zeta)*dfdx+
+        diff(x_mapped[2],zeta,zeta)*dfdy+
+        diff(x_mapped[1],zeta)*diff(x_mapped[1],zeta)*d2fdx2+
+        diff(x_mapped[1],zeta)*diff(x_mapped[2],zeta)*d2fdxdy+
+        diff(x_mapped[2],zeta)*diff(x_mapped[1],zeta)*d2fdxdy+
+        diff(x_mapped[2],zeta)*diff(x_mapped[2],zeta)*d2fdy2;      
+end proc;
+
+
+#---------------------------------------------------------
+# Rename parametrisation of boundary and its derivatives
+#---------------------------------------------------------
+rename:=proc(v)
+        local v1,v2,v3,v4;
+        # Note: yes, the full expressino at arbitrary n involve
+        # up to third derivatives; the latter disappear the relevant expresions
+        # are evaluated at n=0, but we'll keep them in here.  
+        v1:=subs(diff(R_1(zeta),zeta$3)=d3rdzeta3[1],v):
+        v2:=subs(diff(R_2(zeta),zeta$3)=d3rdzeta3[2],v1):
+        v3:=subs(diff(R_1(zeta),zeta$2)=d2rdzeta2[1],v2):
+        v4:=subs(diff(R_2(zeta),zeta$2)=d2rdzeta2[2],v3):
+        v5:=subs(diff(R_1(zeta),zeta)=drdzeta[1],v4):
+        v6:=subs(diff(R_2(zeta),zeta)=drdzeta[2],v5):
+        v6;
+end proc;
+
+
+###########################################################
+
+
+
+# Some function of the cartesian coordinates
+F:=cos(x[1]^2+3*x[2]^3);
+dFdx:=diff(F,x[1]);
+dFdy:=diff(F,x[2]);
+d2Fdx2:=diff(F,x[1]$2);
+d2Fdxdy:=diff(F,x[1],x[2]);
+d2Fdy2:=diff(F,x[2]$2);
+
+r_1(zeta):=cos(zeta);
+r_2(zeta):=sin(zeta);
+
+
+F_as_fct_of_n_and_zeta:=subs(R_1(zeta)=r_1(zeta),R_2(zeta)=r_2(zeta),
+subs(x[1]=x_mapped[1],x[2]=x_mapped[2],F));
+
+dFdn:=diff(F_as_fct_of_n_and_zeta,n);
+dFdzeta:=diff(F_as_fct_of_n_and_zeta,zeta);
+d2Fdn2:=diff(F_as_fct_of_n_and_zeta,n$2);
+d2Fdndzeta:=diff(F_as_fct_of_n_and_zeta,n,zeta);
+d2Fdzeta2:=diff(F_as_fct_of_n_and_zeta,zeta$2);
+
+
+
+# Test it
+test_coords:=[zeta=0.3,n=0.1];
+
+dFdn_direct:=evalf(subs(test_coords,dFdn));
+dFdn_indirect:=
+evalf(subs(test_coords, eval(
+      subs(R_1(zeta) = r_1(zeta),
+           R_2(zeta) = r_2(zeta),
+      subs(x[1] = x_mapped[1],
+           x[2] = x_mapped[2],
+      dfdn(dFdx, dFdy))))));
+
+dFdzeta_direct:=evalf(subs(test_coords,dFdzeta));
+dFdzeta_indirect:=
+evalf(subs(test_coords, eval(
+      subs(R_1(zeta) = r_1(zeta),
+           R_2(zeta) = r_2(zeta),
+      subs(x[1] = x_mapped[1],
+           x[2] = x_mapped[2],
+      dfdzeta(dFdx, dFdy))))));
+
+
+d2Fdn2_direct:=evalf(subs(test_coords,d2Fdn2));
+d2Fdn2_indirect:=
+evalf(subs(test_coords, eval(
+      subs(R_1(zeta) = r_1(zeta),
+           R_2(zeta) = r_2(zeta),
+      subs(x[1] = x_mapped[1],
+           x[2] = x_mapped[2],
+      d2fdn2(dFdx, dFdy, d2Fdx2,d2Fdxdy,d2Fdy2))))));
+
+d2Fdndzeta_direct:=evalf(subs(test_coords,d2Fdndzeta));
+d2Fdndzeta_indirect:=
+evalf(subs(test_coords, eval(
+      subs(R_1(zeta) = r_1(zeta),
+           R_2(zeta) = r_2(zeta),
+      subs(x[1] = x_mapped[1],
+           x[2] = x_mapped[2],
+      d2fdndzeta(dFdx, dFdy, d2Fdx2,d2Fdxdy,d2Fdy2))))));
+
+d2Fdzeta2_direct:=evalf(subs(test_coords,d2Fdzeta2));
+d2Fdzeta2_indirect:=
+evalf(subs(test_coords, eval(
+      subs(R_1(zeta) = r_1(zeta),
+           R_2(zeta) = r_2(zeta),
+      subs(x[1] = x_mapped[1],
+           x[2] = x_mapped[2],
+      d2fdzeta2(dFdx, dFdy, d2Fdx2,d2Fdxdy,d2Fdy2))))));
+
+
+
+##############################################################
+
+
+# Output; we only need the values at n=0
+C(rename(subs(n=0,
+              dfdn(dpsi(counter, 0),
+              dpsi(counter, 1)))),
+              resultname = "dfdn");
+
+C(rename(subs(n=0,
+         dfdzeta(dpsi(counter, 0),
+                 dpsi(counter, 1)))),
+                 resultname = "dfdzeta");
+
+C(rename(subs(n=0,
+         d2fdn2(dpsi(counter, 0),
+                dpsi(counter, 1),
+                d2psi(counter, 0),
+                d2psi(counter, 1),
+                d2psi(counter, 2)))),
+                resultname = "d2fdn2");
+
+C(rename(subs(n=0,
+         d2fdndzeta(dpsi(counter, 0),
+                    dpsi(counter, 1),
+                    d2psi(counter, 0),
+                    d2psi(counter, 1),
+                    d2psi(counter, 2)))),
+                    resultname = "d2fdndzeta");
+
+C(rename(subs(n=0,
+         d2fdzeta2(dpsi(counter, 0),
+                   dpsi(counter, 1),
+                   d2psi(counter, 0),
+                   d2psi(counter, 1),
+                   d2psi(counter, 2)))),
+                   resultname = "d2fdzeta2");
+
+
+
+
+@@@
+
+dfdn_from_machinery:=subs(x[1]=R_1(zeta),x[2]=R_2(zeta),dfdn(dfdx,dfdy));
+subs(n=0,subs(x[1]=R_1(zeta),x[2]=R_2(zeta),dfdzeta(dfdx,dfdy)));
+
+
+@@@@
 
 
 dt_ds:=diff(t,s);

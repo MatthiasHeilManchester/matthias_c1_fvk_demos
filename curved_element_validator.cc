@@ -48,11 +48,11 @@ using MathematicalConstants::Pi;
 
 #define BLUE        "\033[34m"
 #define BOLD_BLUE   "\033[1;34m"
-#define BOLD_GREEN "\033[1;32m"
-#define BOLD_RED   "\033[1;31m"
-#define RED     "\033[31m"
-#define GREEN   "\033[32m"
-#define RESET   "\033[0m"
+#define GREEN       "\033[32m"
+#define BOLD_GREEN  "\033[1;32m"
+#define RED         "\033[31m"
+#define BOLD_RED    "\033[1;31m"
+#define RESET       "\033[0m"
 
 
 
@@ -1935,28 +1935,23 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
         }
 
 
-
-       Vector<double> unit_normal(2);
-       Vector<double> unit_tangent(2);
-       Vector<double> dunit_normal_ds(2);
-       Vector<double> dunit_tangent_ds(2);
-       
-       //#################################################################
        // Setup quantities needed to transform derivatives at vertices
        // into derivatives w.r.t. n and t. 
        bool transform_derivs_to_normal_and_tangent=false;
+
+       // Derivatives of boundary parametrisation
+       Vector<double> d2rdzeta2(2,0.0);
+       Vector<double> drdzeta(2,0.0);
        
        // No transformation if the element hasn't been rotated
-       // hierher this doesn't do the job!
-       // if (int(curved_edge) == C1PlateHelper::CurvedEdgeEnumeration::none)
+       // hierher should really be able to extract this from the element which will have to
+       // interrogate its constituent nodes. Rotation is done node-by-node, not by element.
        if (!Parameters::Rotate_coordinates_on_all_curvilinear_boundaries)
         {
-         oomph_info << "element not rotated! " << std::endl;
          transform_derivs_to_normal_and_tangent=false;
         }
        else 
         {
-         oomph_info << "element rotated! " << std::endl;
          // Only transform derivatives on the vertices...
          if (dof_class.first=="a")
           {
@@ -1994,28 +1989,21 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                abort();
               }
              
-             // Position r as fct of zeta from curvilinear boundary representation
+             // Access zeta from curvilinear boundary representation
              Vector<double> r_from_boundary(2,0.0);
-             Vector<double> d2rdzeta2(2,0.0);
-             Vector<double> drdzeta(2,0.0);
              Vector<double> zeta(1);
              zeta[0]=el_pt->bernadou_element_basis_pt()->get_s_ubar()+
               s_frac_along_edge*(el_pt->bernadou_element_basis_pt()->get_s_obar()-
                                  el_pt->bernadou_element_basis_pt()->get_s_ubar());
-             curviline_pt->position(zeta,r_from_boundary);
              
              // Derivative of position Vector w.r.t. to zeta:
              curviline_pt->dposition(zeta, drdzeta);
              curviline_pt->dposition(zeta, d2rdzeta2);
 
-             // hierher get second derivatives too!
-             
-             double norm=sqrt(drdzeta[0]*drdzeta[0]+
-                              drdzeta[1]*drdzeta[1]);
-             unit_tangent[0]=drdzeta[0]/norm;
-             unit_tangent[1]=drdzeta[1]/norm;
-             unit_normal[0]= unit_tangent[1];
-             unit_normal[1]=-unit_tangent[0];
+#ifdef PARANOID
+
+             // Check position as represented by boundary parametrisation
+             curviline_pt->position(zeta,r_from_boundary);
              
              // Get plot point
              Vector<double> interp_x(dim, 0.0);
@@ -2025,17 +2013,18 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
              // check
              double pos_error=sqrt(pow(r_from_boundary[0]-interp_x[0],2)+
                                    pow(r_from_boundary[1]-interp_x[1],2));
-             oomph_info << "Dof " << dof_class.first << count
-                        << " is on boundary with pos error: "
-                        << pos_error<< std::endl;
-             oomph_info << "Normal  : "
-                        << unit_normal[0] << " "
-                        << unit_normal[1] << " "
-                        << std::endl;
-             oomph_info << "Tangent : "
-                        << unit_tangent[0] << " "
-                        << unit_tangent[1] << " "
-                        << std::endl;
+
+             double tol=1.0e-12;
+             if (pos_error>tol)
+              {
+               std::stringstream error_stream;
+               error_stream << "ERROR: Dof " << dof_class.first << count
+                            << " is on boundary with pos error: "
+                            << pos_error<< std::endl;
+               // hierher throw
+               oomph_info << error_stream.str();
+              }
+#endif
              
             }
            // Bump
@@ -2070,18 +2059,6 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                                                               d2test_i_wdxi2);
        
 
-        // hierher HELP: This function (above) calls
-        // CurvableBellElement<NNODE_1D>::d2_c1_basis_eulerian(...)
-        // and then rotate_shape(...). Which presumably changes the basis functions
-        // (and their derivatives w.r.t. x and y (!)) so that the shape
-        // functions have an easy interpretation in terms of boundary fitted
-        // coordinates n,t. However, to check the interpolation properties,
-        // I have to translate the derivatives w.r.t. x and y into derivatives
-        // w.r.t. to n and t. Or do I? What are those derivatives in the interior
-        // of the element (where I'm checking the interpolation conditions).
-
-
-
        
        // Move across into 1D enumeration:
        unsigned counter=0;
@@ -2091,79 +2068,73 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
         {
          for (unsigned k=0;k<n_w_nodal_type;k++)
           {
+           // shape fct itself
            psi(counter)=psi_n_w(j,k);
-           if (transform_derivs_to_normal_and_tangent)
-            {
-             // d/dn
-             dpsi(counter,0)=
-              dpsi_n_wdxi(j,k,0)*unit_normal[0]+
-              dpsi_n_wdxi(j,k,1)*unit_normal[1];
-             // d/dt
-             dpsi(counter,1)=
-              dpsi_n_wdxi(j,k,0)*unit_tangent[0]+
-              dpsi_n_wdxi(j,k,1)*unit_tangent[1];
-
-             // hierher not yet done.
-             // d^2/dn^2
-             d2psi(counter,0)=d2psi_n_wdxi2(j,k,0);
-             // d^2/dndt
-             d2psi(counter,1)=d2psi_n_wdxi2(j,k,1);
-             // d^2/dt^2
-             d2psi(counter,2)=d2psi_n_wdxi2(j,k,2);
-            }
-           else
-            {
-             // d/dx
-             dpsi(counter,0)=dpsi_n_wdxi(j,k,0);
-             // d/dy
-             dpsi(counter,1)=dpsi_n_wdxi(j,k,1);
-             // d^2/dx^2
-             d2psi(counter,0)=d2psi_n_wdxi2(j,k,0);
-             // d^2/dxdy
-             d2psi(counter,1)=d2psi_n_wdxi2(j,k,1);
-             // d^2/dy^2
-             d2psi(counter,2)=d2psi_n_wdxi2(j,k,2);
-            }
+           
+           // d/dx
+           dpsi(counter,0)=dpsi_n_wdxi(j,k,0);
+           // d/dy
+           dpsi(counter,1)=dpsi_n_wdxi(j,k,1);
+           // d^2/dx^2
+           d2psi(counter,0)=d2psi_n_wdxi2(j,k,0);
+           // d^2/dxdy
+           d2psi(counter,1)=d2psi_n_wdxi2(j,k,1);
+           // d^2/dy^2
+           d2psi(counter,2)=d2psi_n_wdxi2(j,k,2);
+           
            counter++;
           }
         }
-       // then the internal (bubble) ones:
+       // ...then the internal (bubble) ones:
        for (unsigned j=0;j<n_w_internal_type;j++)
         {
+         // shape fct itself
          psi(counter)=psi_i_w(j);
-         if (transform_derivs_to_normal_and_tangent)
-          {
-           // d/dn
-           dpsi(counter,0)=
-            dpsi_i_wdxi(j,0)*unit_normal[0]+
-            dpsi_i_wdxi(j,1)*unit_normal[1];
-           // d/dt
-           dpsi(counter,1)=
-            dpsi_i_wdxi(j,0)*unit_tangent[0]+
-            dpsi_i_wdxi(j,1)*unit_tangent[1];
-
-           // hierher not yet done.
-           // d^2/dn^2
-           d2psi(counter,0)=d2psi_i_wdxi2(j,0);
-           // d^2/dndt
-           d2psi(counter,1)=d2psi_i_wdxi2(j,1);
-           // d^2/dt^2
-           d2psi(counter,2)=d2psi_i_wdxi2(j,2);
-          }
-         else
-          {
-           // d/dx
-           dpsi(counter,0)=dpsi_i_wdxi(j,0);
-           // d/dy
-           dpsi(counter,1)=dpsi_i_wdxi(j,1);
-           // d^2/dx^2
-           d2psi(counter,0)=d2psi_i_wdxi2(j,0);
-           // d^2/dxdy
-           d2psi(counter,1)=d2psi_i_wdxi2(j,1);
-           // d^2/dy^2
-           d2psi(counter,2)=d2psi_i_wdxi2(j,2);
-          }
+         
+         // d/dx
+         dpsi(counter,0)=dpsi_i_wdxi(j,0);
+         // d/dy
+         dpsi(counter,1)=dpsi_i_wdxi(j,1);
+         // d^2/dx^2
+         d2psi(counter,0)=d2psi_i_wdxi2(j,0);
+         // d^2/dxdy
+         d2psi(counter,1)=d2psi_i_wdxi2(j,1);
+         // d^2/dy^2
+         d2psi(counter,2)=d2psi_i_wdxi2(j,2);
+         
          counter++;
+        }
+
+
+       // Now rotate derivatives if necessary
+       if (transform_derivs_to_normal_and_tangent)
+        {
+         for (unsigned counter=0;counter<n_interpolation_test;counter++)
+          {
+           double dfdn=0.0;
+           double dfdzeta=0.0;
+           double d2fdn2=0.0;
+           double d2fdndzeta=0.0;
+           double d2fdzeta2=0.0;
+           
+           // from maple:           
+           dfdn = pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.1e1 / 0.2e1) * drdzeta[1] * dpsi(counter, 0) - pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.1e1 / 0.2e1) * drdzeta[0] * dpsi(counter, 1);
+           
+           dfdzeta = drdzeta[0] * dpsi(counter, 0) + drdzeta[1] * dpsi(counter, 1);
+           
+           d2fdn2 = 1 / (drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1]) * drdzeta[1] * drdzeta[1] * d2psi(counter, 0) - 2 / (drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1]) * drdzeta[1] * drdzeta[0] * d2psi(counter, 1) + 1 / (drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1]) * drdzeta[0] * drdzeta[0] * d2psi(counter, 2);
+           
+           d2fdndzeta = (-pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.3e1 / 0.2e1) * drdzeta[1] * (0.2e1 * drdzeta[0] * d2rdzeta2[0] + 0.2e1 * drdzeta[1] * d2rdzeta2[1]) / 0.2e1 + pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.1e1 / 0.2e1) * d2rdzeta2[1]) * dpsi(counter, 0) + (pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.3e1 / 0.2e1) * drdzeta[0] * (0.2e1 * drdzeta[0] * d2rdzeta2[0] + 0.2e1 * drdzeta[1] * d2rdzeta2[1]) / 0.2e1 - pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.1e1 / 0.2e1) * d2rdzeta2[0]) * dpsi(counter, 1) + pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.1e1 / 0.2e1) * drdzeta[1] * drdzeta[0] * d2psi(counter, 0) + pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.1e1 / 0.2e1) * drdzeta[1] * drdzeta[1] * d2psi(counter, 1) - pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.1e1 / 0.2e1) * drdzeta[0] * drdzeta[0] * d2psi(counter, 1) - pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.1e1 / 0.2e1) * drdzeta[0] * drdzeta[1] * d2psi(counter, 2);
+           
+           d2fdzeta2 = d2rdzeta2[0] * dpsi(counter, 0) + d2rdzeta2[1] * dpsi(counter, 1) + drdzeta[0] * drdzeta[0] * d2psi(counter, 0) + 2 * drdzeta[0] * drdzeta[1] * d2psi(counter, 1) + drdzeta[1] * drdzeta[1] * d2psi(counter, 2);
+           
+           // ...and overwrite
+           dpsi(counter,0)=dfdn;
+           dpsi(counter,1)=dfdzeta;
+           d2psi(counter,0)=d2fdn2;
+           d2psi(counter,1)=d2fdndzeta;
+           d2psi(counter,2)=d2fdzeta2;
+          }
         }
        
        
@@ -2420,7 +2391,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    
    // Loop over test points along edge
    Vector<double> s_test(2);
-   unsigned n_test = 15;
+   unsigned n_test = 100; // 15;
    
    // Error in represenation of curved boundary
    double max_pos_error=0.0;
