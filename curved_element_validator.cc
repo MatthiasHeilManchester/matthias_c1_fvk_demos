@@ -136,6 +136,7 @@ namespace PolynomialChecker
  bool is_polynomial_of_degree(
   const Vector<std::pair<double,double>>& s_and_f,
   const unsigned& degree,
+  Vector<std::pair<double,double>>& s_and_f_fitted,
   const double& tol = 1e-12)
  {
   const unsigned n = s_and_f.size();
@@ -196,13 +197,17 @@ namespace PolynomialChecker
   coefficients_of_interpolating_polynomial(s_fit, f_fit, degree,
                                            coeff,s_mid,s_scale);
 
- #ifdef PARANOID
+
+  // Reset vector of fitted points
+  s_and_f_fitted.resize(0);
+  
  // Checking interpolation points
  double mx_err=0.0;
  double val=0.0;
  for (unsigned k = 0; k < m; k++)
   {
    val = eval_poly_scaled(coeff, s_fit[k], s_mid, s_scale);
+   s_and_f_fitted.push_back(std::make_pair(s_fit[k],val));
    // relative error, scaled on max. value overall
    mx_err=std::max(mx_err,std::abs(val - f_fit[k])/max_f);
   }
@@ -214,7 +219,7 @@ namespace PolynomialChecker
     << mx_err << " val = " << val << std::endl;
    abort();
   }
-#endif
+
 
   // Compute scale (for relative tolerance)
   if (max_f == 0.0) max_f = 1.0;
@@ -237,6 +242,7 @@ namespace PolynomialChecker
     if (used) continue;
     
     double val = eval_poly_scaled(coeff, s_and_f[i].first, s_mid, s_scale);
+    s_and_f_fitted.push_back(std::make_pair(s_and_f[i].first,val));
     double err = std::abs(val - s_and_f[i].second);
     max_err = std::max(max_err, err);
    }
@@ -248,35 +254,47 @@ namespace PolynomialChecker
  /// Return the (most likely) lowest order of the polynomial represented by
  /// the s,p(s) pairs. Don't use for overly large values of the maximum
  /// degree because the Vandermonde matrix used in the guts of this will be
- /// too ill-conditioned. Return is negative (-1) if neither of the specified
+ /// too ill-conditioned. Return is negative (-1) if none of the tested
  /// polynomial degrees fits to within specified tolerance (default 1e-12).
- int most_likely_polynomial_degree(const Vector<std::pair<double,double>>& s_and_f,
-                                   const unsigned& max_degree,
-                                   const double& tol = 1e-12)
+ int most_likely_polynomial_degree(
+  const Vector<std::pair<double,double>>& s_and_f,
+  const unsigned& max_degree,
+  Vector<Vector<std::pair<double,double>>>& s_and_f_fitted_history,
+  const double& tol = 1e-12)
  {
   int best_fit_degree=-1;
+
+  // make space for history of fitting attempts
+  Vector<std::pair<double,double>> s_and_f_fitted;
+  s_and_f_fitted_history.resize(max_degree);
   
   // Check if all the values are the same (to within tolerance)
   // if so we have a zeroth order polynomial
   bool f_is_constant=true;
   double first_entry=s_and_f[0].second;
+  s_and_f_fitted_history[0].push_back(s_and_f[0]);
   unsigned n=s_and_f.size();
   for (unsigned i=1;i<n;i++)
    {
+    // Just assign original values; they get overwritten if data to be fitted
+    // isn't constant
+    s_and_f_fitted_history[0].push_back(std::make_pair(s_and_f[i].first,first_entry));
     if (std::abs(first_entry-s_and_f[i].second)>tol)
      {
       f_is_constant=false;
-      break;
+      // keep going because we want to fill in the the fitted data. break;
      }
    }
   if (f_is_constant)
    {
     return 0;
    }
-  
+
   for (unsigned d=1;d<max_degree;d++)
    {
-    if (is_polynomial_of_degree(s_and_f,d,tol))
+    bool is_poly_of_order_d=is_polynomial_of_degree(s_and_f,d,s_and_f_fitted,tol);
+    s_and_f_fitted_history[d]=s_and_f_fitted;
+    if (is_poly_of_order_d)
      {
       best_fit_degree=d;
       return best_fit_degree;
@@ -1998,7 +2016,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
              
              // Derivative of position Vector w.r.t. to zeta:
              curviline_pt->dposition(zeta, drdzeta);
-             curviline_pt->dposition(zeta, d2rdzeta2);
+             curviline_pt->d2position(zeta, d2rdzeta2); //hierher wtf? This was dposition twice (Thank you Aidan!)
 
 #ifdef PARANOID
 
@@ -2059,7 +2077,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                                                               d2test_i_wdxi2);
        
 
-       
+
        // Move across into 1D enumeration:
        unsigned counter=0;
        
@@ -2117,6 +2135,11 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
            double d2fdndzeta=0.0;
            double d2fdzeta2=0.0;
            
+           // hierher:
+           // bypass to provide a consistent set of functinos
+           // and derivatives and check if they're being transformed properly
+           // for some actual curved boundary!
+           
            // from maple:           
            dfdn = pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.1e1 / 0.2e1) * drdzeta[1] * dpsi(counter, 0) - pow(drdzeta[0] * drdzeta[0] + drdzeta[1] * drdzeta[1], -0.1e1 / 0.2e1) * drdzeta[0] * dpsi(counter, 1);
            
@@ -2134,6 +2157,11 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
            d2psi(counter,0)=d2fdn2;
            d2psi(counter,1)=d2fdndzeta;
            d2psi(counter,2)=d2fdzeta2;
+
+
+           // hierher (again tanks to Aidan!): check some invariants. magnitude of
+           // gradient (don't assume that zeta is an arclength.
+           
           }
         }
        
@@ -2600,21 +2628,24 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    // Tolerance for poly fit (1e-12 by default)
    double poly_fit_tol=1.0e-12;
    
-   count=0;
    Vector<std::pair<double,double>> s_and_f(n_test);
+   Vector<Vector<std::pair<double,double>>> s_and_f_fitted_history;
+   
+   count=0;
    for (unsigned j=0;j<n_w_node;j++)
     { 
      for (unsigned k=0;k<n_w_nodal_type;k++)
       {
        
        double max=0.0;
+       s_and_f_fitted_history.resize(0);
        for (unsigned i=0;i<n_test;i++)
         {
          s_and_f[i]=std::make_pair(s_sample[i],psi_n_sample[count][i]);
          max=std::max(std::abs(s_and_f[i].second),max);
         }
        likely_degree=PolynomialChecker::most_likely_polynomial_degree
-        (s_and_f,max_degree,poly_fit_tol);
+        (s_and_f,max_degree,s_and_f_fitted_history,poly_fit_tol);
        if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
        oomph_info << "Along edge, nodal basis function j,k "
                   << j << " " << k 
@@ -2622,22 +2653,66 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        if (max<poly_fit_cutoff)
         {
          oomph_info << " is zero (i.e. < " << poly_fit_cutoff << ")";
+         oomph_info <<RESET << std::endl;
         }
        else
         {
          oomph_info << " is likely to be a polynomial of degree " 
                     << likely_degree << " (f_max = " << max << ")";
+         oomph_info <<RESET << std::endl;
+
+         //##############
+         bool first=true;
+         for (unsigned p=0;p<max_degree;p++)
+          {
+           if (s_and_f_fitted_history[p].size()==n_test)
+            {
+             ofstream outfile;
+             std::string filename=dir_name_for_output+
+              "/test_psi_n_fit_j"+to_string(j)+
+              "_k"+to_string(k)+
+              "_count"+to_string(count)+
+              +"_fit_p"+to_string(p)+".dat";
+             outfile.open(filename);
+             for (unsigned i=0;i<n_test;i++)
+              {
+               outfile << s_and_f[i].first  << " "
+                       << s_and_f[i].second << " "
+                       << s_and_f_fitted_history[p][i].first  << " "
+                       << s_and_f_fitted_history[p][i].second << " "
+                       << std::endl;
+              }
+             outfile.close();
+             if (first)
+              {
+               oomph_info << "file" << p << " = '" << filename
+                          <<"'; plot file" << p
+                          << " u 1:2 w l lw 3 lc 'red', file"
+                          << p << " u 3:4" << std::endl;
+               first=false;
+              }
+             else
+              {
+               oomph_info << "file" << p << " = '" << filename
+                          <<"'; replot file"
+                          << p << " u 3:4 ps 2" << std::endl;
+              }
+            }
+          }
+         //##############
+
         }
-       oomph_info <<RESET << std::endl;
+
        
        max=0.0;
+       s_and_f_fitted_history.resize(0);
        for (unsigned i=0;i<n_test;i++)
         {
          s_and_f[i]=std::make_pair(s_sample[i],dpsidn_n_sample[count][i]);
          max=std::max(s_and_f[i].second,max);
         }
        likely_degree=PolynomialChecker::most_likely_polynomial_degree
-        (s_and_f,max_degree,poly_fit_tol);
+        (s_and_f,max_degree,s_and_f_fitted_history,poly_fit_tol);
        if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
        oomph_info << "Along edge, normal deriv of nodal basis function j,k "
                   << j << " " << k
@@ -2645,13 +2720,76 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        if (max<poly_fit_cutoff)
         {
          oomph_info << " is zero (i.e. < " << poly_fit_cutoff << ")";
+         oomph_info <<RESET << std::endl;
+
         }
        else
         {
          oomph_info << " is likely to be a polynomial of degree " 
                     << likely_degree << " (f_max = " << max << ")";
+         oomph_info <<RESET << std::endl;
+
+         //##############
+         bool first=true;
+         for (unsigned p=0;p<max_degree;p++)
+          {
+           if (s_and_f_fitted_history[p].size()==n_test)
+            {
+             ofstream outfile;
+             std::string filename=dir_name_for_output+
+              "/test_dpsi_n_fit_j"+to_string(j)+
+              "_k"+to_string(k)+
+              "_count"+to_string(count)+
+              +"_fit_p"+to_string(p)+".dat";
+             outfile.open(filename);
+             for (unsigned i=0;i<n_test;i++)
+              {
+               outfile << s_and_f[i].first  << " "
+                       << s_and_f[i].second << " "
+                       << s_and_f_fitted_history[p][i].first  << " "
+                       << s_and_f_fitted_history[p][i].second << " "
+                       << std::endl;
+              }
+             outfile.close();
+             if (first)
+              {
+               oomph_info << "file" << p << " = '" << filename
+                          <<"'; plot file" << p
+                          << " u 1:2 w l lw 3 lc 'red', file"
+                          << p << " u 3:4" << std::endl;
+               first=false;
+              }
+             else
+              {
+               oomph_info << "file" << p << " = '" << filename
+                          <<"'; replot file"
+                          << p << " u 3:4 ps 2" << std::endl;
+              }
+            }
+          }
+         //##############
+
+         
+         // ofstream outfile;
+         // std::string filename=dir_name_for_output+
+         //  "/test_dpsi_n_fit_j"+to_string(j)+
+         //  "_k"+to_string(k)+
+         //  "_count"+to_string(count)+
+         //  ".dat";
+         // oomph_info << " (plotting in " << filename << ")";
+         // outfile.open(filename);
+         // for (unsigned i=0;i<n_test;i++)
+         //  {
+         //   outfile << s_and_f[i].first  << " "
+         //           << s_and_f[i].second << " "
+         //           << s_and_f_fitted[i].first  << " "
+         //           << s_and_f_fitted[i].second << " "
+         //           << std::endl;
+         //  }
+         // outfile.close();
+
+         
         }
-       oomph_info <<RESET << std::endl;
        
        count++;
       }
@@ -2663,13 +2801,14 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    for (unsigned k_type = 0; k_type < n_w_internal_type; k_type++)
     {
      double max=0.0;
+     s_and_f_fitted_history.resize(0);
      for (unsigned i=0;i<n_test;i++)
       {
        s_and_f[i]=std::make_pair(s_sample[i],psi_i_sample[count][i]);
        max=std::max(s_and_f[i].second,max);
       }
      likely_degree=PolynomialChecker::most_likely_polynomial_degree
-      (s_and_f,max_degree,poly_fit_tol);
+      (s_and_f,max_degree,s_and_f_fitted_history,poly_fit_tol);
      if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
      oomph_info << "Along edge, internal basis function k "
                 << k_type
@@ -2677,22 +2816,86 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
      if (max<poly_fit_cutoff)
       {
        oomph_info << " is zero (i.e. < " << poly_fit_cutoff << ")";
+       oomph_info <<RESET << std::endl;
+
       }
      else
       {
        oomph_info << " is likely to be a polynomial of degree " 
                   << likely_degree << " (f_max = " << max << ")";
+       oomph_info <<RESET << std::endl;
+
+
+       //##############
+       bool first=true;
+       for (unsigned p=0;p<max_degree;p++)
+        {
+         if (s_and_f_fitted_history[p].size()==n_test)
+          {
+           ofstream outfile;
+           std::string filename=dir_name_for_output+
+            "/test_psi_i_fit_k"+to_string(k_type)+
+            "_count"+to_string(count)+
+            +"_fit_p"+to_string(p)+".dat";
+           outfile.open(filename);
+           for (unsigned i=0;i<n_test;i++)
+            {
+             outfile << s_and_f[i].first  << " "
+                     << s_and_f[i].second << " "
+                     << s_and_f_fitted_history[p][i].first  << " "
+                     << s_and_f_fitted_history[p][i].second << " "
+                     << std::endl;
+            }
+           outfile.close();
+           if (first)
+            {
+             oomph_info << "file" << p << " = '" << filename
+                        <<"'; plot file" << p
+                        << " u 1:2 w l lw 3 lc 'red', file"
+                        << p << " u 3:4" << std::endl;
+             first=false;
+            }
+           else
+            {
+             oomph_info << "file" << p << " = '" << filename
+                        <<"'; replot file"
+                        << p << " u 3:4 ps 2" << std::endl;
+            }
+          }
+        }
+       //##############
+       
+
+       
+         // ofstream outfile;
+         // std::string filename=dir_name_for_output+
+         //  "/test_psi_i_fit_k"+to_string(k_type)+
+         //  "_count"+to_string(count)+
+         //  ".dat";
+         // oomph_info << " (plotting in " << filename << ")";
+         // outfile.open(filename);
+         // for (unsigned i=0;i<n_test;i++)
+         //  {
+         //   outfile << s_and_f[i].first  << " "
+         //           << s_and_f[i].second << " "
+         //           << s_and_f_fitted[i].first  << " "
+         //           << s_and_f_fitted[i].second << " "
+         //           << std::endl;
+         //  }
+         // outfile.close();
+
       }
-     oomph_info <<RESET << std::endl;
+
      
      max=0.0;
+     s_and_f_fitted_history.resize(0);
      for (unsigned i=0;i<n_test;i++)
       {
        s_and_f[i]=std::make_pair(s_sample[i],dpsidn_i_sample[count][i]);
        max=std::max(s_and_f[i].second,max);
       }
      likely_degree=PolynomialChecker::most_likely_polynomial_degree
-      (s_and_f,max_degree,poly_fit_tol);
+      (s_and_f,max_degree,s_and_f_fitted_history,poly_fit_tol);
      if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
      oomph_info << "Along edge, normal deriv of internal basis function k "
                 << k_type
@@ -2700,13 +2903,74 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
      if (max<poly_fit_cutoff)
       {
        oomph_info << " is zero (i.e. < " << poly_fit_cutoff << ")";
+       oomph_info <<RESET << std::endl;
+
       }
      else
       {
        oomph_info << " is likely to be a polynomial of degree " 
                   << likely_degree << " (f_max = " << max << ")";
+       oomph_info <<RESET << std::endl;
+       
+       //##############
+       bool first=true;
+       for (unsigned p=0;p<max_degree;p++)
+        {
+         if (s_and_f_fitted_history[p].size()==n_test)
+          {
+           ofstream outfile;
+           std::string filename=dir_name_for_output+
+            "/test_dpsi_i_fit_k"+to_string(k_type)+
+            "_count"+to_string(count)+
+            +"_fit_p"+to_string(p)+".dat";
+           outfile.open(filename);
+           for (unsigned i=0;i<n_test;i++)
+            {
+             outfile << s_and_f[i].first  << " "
+                     << s_and_f[i].second << " "
+                     << s_and_f_fitted_history[p][i].first  << " "
+                     << s_and_f_fitted_history[p][i].second << " "
+                     << std::endl;
+            }
+           outfile.close();
+           if (first)
+            {
+             oomph_info << "file" << p << " = '" << filename
+                        <<"'; plot file" << p
+                        << " u 1:2 w l lw 3 lc 'red', file"
+                        << p << " u 3:4" << std::endl;
+             first=false;
+            }
+           else
+            {
+             oomph_info << "file" << p << " = '" << filename
+                        <<"'; replot file"
+                        << p << " u 3:4 ps 2" << std::endl;
+            }
+          }
+        }
+       //##############
+       
+
+
+       
+         // ofstream outfile;
+         // std::string filename=dir_name_for_output+
+         //  "/test_dpsi_i_fit_k"+to_string(k_type)+
+         //  "_count"+to_string(count)+
+         //  ".dat";
+         // oomph_info << " (plotting in " << filename << ")";
+         // outfile.open(filename);
+         // for (unsigned i=0;i<n_test;i++)
+         //  {
+         //   outfile << s_and_f[i].first  << " "
+         //           << s_and_f[i].second << " "
+         //           << s_and_f_fitted[i].first  << " "
+         //           << s_and_f_fitted[i].second << " "
+         //           << std::endl;
+         //  }
+         // outfile.close();
       }
-     oomph_info <<RESET << std::endl;
      
      
      count++;
@@ -3357,9 +3621,46 @@ int main(int argc, char** argv)
      
      
      // Check up to max degree
+     Vector<Vector<std::pair<double,double>>> s_and_f_fitted_history;
      int likely_degree=PolynomialChecker::most_likely_polynomial_degree
-      (s_and_f,max_degree);
+      (s_and_f,max_degree,s_and_f_fitted_history);
      
+     ofstream outfile;
+     bool first=true;
+     for (unsigned p=0;p<max_degree;p++)
+      {
+       if (s_and_f_fitted_history[p].size()==nsample)
+        {
+         std::string filename="test_poly_of_degree"+
+          to_string(degree)+"_fit_p"+to_string(p)+".dat";
+         outfile.open(filename);
+         for (unsigned i=0;i<nsample;i++)
+          {
+           outfile << s_and_f[i].first  << " "
+                   << s_and_f[i].second << " "
+                   << s_and_f_fitted_history[p][i].first  << " "
+                   << s_and_f_fitted_history[p][i].second << " "
+                   << std::endl;
+          }
+         outfile.close();
+         if (first)
+          {
+           oomph_info << "file" << p << " = '" << filename
+                      <<"'; plot file" << p << " u 1:2 w l lw 3 lc 'red', file"
+                      << p << " u 3:4" << std::endl;
+           first=false;
+          }
+         else
+          {
+           oomph_info << "file" << p << " = '" << filename
+                      <<"'; replot file"
+                      << p << " u 3:4 ps 2" << std::endl;
+          }
+        }
+      }
+
+
+         
      if (int(degree)!=likely_degree)
       {
        failed=true;
@@ -3377,6 +3678,8 @@ int main(int argc, char** argv)
    oomph_info << std::endl;
    
   }
+
+  //exit(0);
 
   // Test 1: From the very bottom: Monomials are OK
   validate_monomials_to_basic_basis_functions<5>();
