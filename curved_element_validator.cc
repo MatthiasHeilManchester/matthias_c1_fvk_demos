@@ -132,11 +132,13 @@ namespace PolynomialChecker
  
 /// Return true if sample pairs (s, f(s)) can be represented
 /// to within specified tolerance (default tol=1.0e-12) as
-/// a polynomial of specified degree.
+/// a polynomial of specified degree. hierher elaborate on last but one
+ // arg
  bool is_polynomial_of_degree(
   const Vector<std::pair<double,double>>& s_and_f,
   const unsigned& degree,
   Vector<std::pair<double,double>>& s_and_f_fitted,
+  double& max_err,
   const double& tol = 1e-12)
  {
   const unsigned n = s_and_f.size();
@@ -226,7 +228,7 @@ namespace PolynomialChecker
   double threshold = tol * max_f;
   
   // Step 2: validate on remaining points
-  double max_err=0.0;
+  max_err=0.0;
   for (unsigned i = 0; i < n; i++)
    {
     // skip interpolation points
@@ -259,7 +261,8 @@ namespace PolynomialChecker
  int most_likely_polynomial_degree(
   const Vector<std::pair<double,double>>& s_and_f,
   const unsigned& max_degree,
-  Vector<Vector<std::pair<double,double>>>& s_and_f_fitted_history,
+  Vector<std::pair<Vector<std::pair<double,double>>,double>>&
+  s_and_f_fitted_history,
   const double& tol = 1e-12)
  {
   int best_fit_degree=-1;
@@ -272,19 +275,24 @@ namespace PolynomialChecker
   // if so we have a zeroth order polynomial
   bool f_is_constant=true;
   double first_entry=s_and_f[0].second;
-  s_and_f_fitted_history[0].push_back(s_and_f[0]);
+  s_and_f_fitted_history[0].first.push_back(s_and_f[0]);
+  double max_err=0.0;
   unsigned n=s_and_f.size();
   for (unsigned i=1;i<n;i++)
    {
     // Just assign original values; they get overwritten if data to be fitted
     // isn't constant
-    s_and_f_fitted_history[0].push_back(std::make_pair(s_and_f[i].first,first_entry));
-    if (std::abs(first_entry-s_and_f[i].second)>tol)
+    s_and_f_fitted_history[0].first.push_back(
+     std::make_pair(s_and_f[i].first,first_entry));
+    double err=std::abs(first_entry-s_and_f[i].second);
+    if (err>tol)
      {
+      max_err=std::max(err,max_err);
       f_is_constant=false;
-      // keep going because we want to fill in the the fitted data. break;
+      // keep going because we want to fill in the the fitted data; no break;
      }
    }
+  s_and_f_fitted_history[0].second=max_err;
   if (f_is_constant)
    {
     return 0;
@@ -292,8 +300,11 @@ namespace PolynomialChecker
 
   for (unsigned d=1;d<max_degree;d++)
    {
-    bool is_poly_of_order_d=is_polynomial_of_degree(s_and_f,d,s_and_f_fitted,tol);
-    s_and_f_fitted_history[d]=s_and_f_fitted;
+    double max_err=0.0;
+    bool is_poly_of_order_d=is_polynomial_of_degree
+     (s_and_f,d,s_and_f_fitted,max_err,tol);
+    s_and_f_fitted_history[d].first=s_and_f_fitted;
+    s_and_f_fitted_history[d].second=max_err;
     if (is_poly_of_order_d)
      {
       best_fit_degree=d;
@@ -482,95 +493,57 @@ private:
  //=========================================================================
  /// Polynomial approximation to ellipse
  //=========================================================================
-class PolynomialApproxToEllipse : public GeomObject
+class PolynomialLine : public GeomObject
 {
 public:
  
- /// Constructor: Pass ellipse and start and end coordinates.
- /// Boundary goes through the start and end points of the ellipse
+ /// Constructor: Pass end points and start and end coordinates.
+ /// Boundary goes through the start and end points 
  /// and uses a polynomial representation of order  m_poly in
  /// between. Used for test of the boundary interpolation.
  /// For m_poly<=3 (or <=5) the boundary must be represented exactly
  /// by curved elements with boundary polynomial order of 3 (or 5). 
- PolynomialApproxToEllipse(Ellipse* ellipse_pt,
-                           const double& zeta_start,
-                           const double& zeta_end,
-                           const unsigned& m_poly)
-  : GeomObject(1, 2), Ellipse_pt(ellipse_pt),
-    Zeta_start(zeta_start), Zeta_end(zeta_end), M_poly_dev(m_poly-2)
+ PolynomialLine(const Vector<double>& left,
+                const Vector<double>& right,                
+                const double& zeta_start,
+                const double& zeta_end,
+                const double& ampl_of_deviation,
+                const unsigned& m_poly,
+                const double& phi)
+  : GeomObject(1, 2),
+    Zeta_start(zeta_start), Zeta_end(zeta_end),
+    Ampl_of_deviation(ampl_of_deviation),
+    M_poly(m_poly)
   {
-
-   Vector<double> zeta(1);
-
-   // Get left and right values
+   Vector<double> zeta(1);   
    Left.resize(2);
-   zeta[0]=zeta_start;
-   Ellipse_pt->position(zeta,Left);
-
+   Left[0]=left[0]*cos(phi)-left[1]*sin(phi);
+   Left[1]=left[1]*cos(phi)+left[0]*sin(phi);
    Right.resize(2);
-   zeta[0]=zeta_end;
-   Ellipse_pt->position(zeta,Right);
-   
-   // Polynomial coefficients: Fm_minus_2[p][i]
-   Fm_minus_2.resize(M_poly_dev);
-   for (unsigned p=0;p<M_poly_dev;p++)
-    {
-     Fm_minus_2[p] = {Random::random_between_zero_and_one(),
-                      Random::random_between_zero_and_one()};
-    }
-
-   // Choose polynomial so that zeros are located
-   // in relevant part of boundary coordinate
-   Zeros_in_interval=true;
-
-   // Max of polynomial 
-   double product=1.0;
-   double eval_point=0.5;
-   if ((M_poly_dev+1)%2==0)
-    {
-     eval_point=0.5-1.0/double(M_poly_dev+2);
-    }
-   for (unsigned ii=0;ii<M_poly_dev+2;ii++)
-    {
-     double fract_zero=double(ii)/double(M_poly_dev+1);
-     product*=(eval_point-fract_zero);
-    }
-   Ampl_of_deviation=0.0; // hierher1.0e-2/product; //1.0e-2/product;
+   Right[0]=right[0]*cos(phi)-right[1]*sin(phi);
+   Right[1]=right[1]*cos(phi)+right[0]*sin(phi);
   }
  
  /// Broken copy constructor
- PolynomialApproxToEllipse(const PolynomialApproxToEllipse& dummy) = delete;
+ PolynomialLine(const PolynomialLine& dummy) = delete;
  
  /// Broken assignment operator
- void operator=(const PolynomialApproxToEllipse&) = delete;
+ void operator=(const PolynomialLine&) = delete;
  
  /// Destructor
- ~PolynomialApproxToEllipse(){}
+ ~PolynomialLine(){}
  
  /// Position Vector at Lagrangian coordinate zeta
  void position(const Vector<double>& zeta, Vector<double>& r) const
   {
+   double poly=0.0;
+   double dpoly=2.0;
+   double d2poly=2.0;
+   polynomial(zeta[0],poly,dpoly,d2poly);
    double fract=(zeta[0]-Zeta_start)/(Zeta_end-Zeta_start);
    for (unsigned i=0;i<2;i++)
     {
-     r[i]=Left[i]+(Right[i]-Left[i])*fract;
-     if (Zeros_in_interval)
-      {
-       double product=1.0;
-       for (unsigned ii=0;ii<M_poly_dev+2;ii++)
-        {
-         double fract_zero=double(ii)/double(M_poly_dev+1);
-         product*=(fract-fract_zero);
-        }
-       r[i]+=Ampl_of_deviation*product; 
-      }
-     else
-      {
-       for (unsigned p=0;p<M_poly_dev;p++)
-        {
-         r[i]+=fract*(1.0-fract)*Fm_minus_2[p][i]*pow(fract,p);
-        }
-      }
+     r[i]=Left[i]+(Right[i]-Left[i])*fract+Ampl_of_deviation*poly;
     }
   }
  
@@ -592,48 +565,16 @@ public:
  virtual void dposition(const Vector<double>& zeta,
                         DenseMatrix<double>& drdzeta) const
   {
-   double fract=(zeta[0]-Zeta_start)/(Zeta_end-Zeta_start);
+   double poly=0.0;
+   double dpoly=2.0;
+   double d2poly=2.0;
+   polynomial(zeta[0],poly,dpoly,d2poly);
    for (unsigned i=0;i<2;i++)
     {
-     drdzeta(0,i)=(Right[i]-Left[i])/(Zeta_end-Zeta_start);
-     if (Zeros_in_interval)
-      {
-       double sum=0.0;
-       for (unsigned jj=0;jj<M_poly_dev+2;jj++)
-        {
-         double product=Ampl_of_deviation/(Zeta_end-Zeta_start);
-         for (unsigned ii=0;ii<M_poly_dev+2;ii++)
-          {
-           if (ii!=jj)
-            {
-             double fract_zero=double(ii)/double(M_poly_dev+1);
-             product*=(fract-fract_zero);
-            }
-          }
-         sum+=product;
-        }
-       drdzeta(0,i)+=sum; 
-      }
-     else
-      {
-       for (unsigned p=0;p<M_poly_dev;p++)
-        {
-         drdzeta(0,i)+=
-          1.0/(Zeta_end-Zeta_start)*
-          (      (1.0-fract)*Fm_minus_2[p][i]*pow(fract,p)+
-                 fract*(   -1.0  )*Fm_minus_2[p][i]*pow(fract,p)
-           );
-         if (p>0)
-          {
-           drdzeta(0,i)+=
-            1.0/(Zeta_end-Zeta_start)*
-            fract*(1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1);
-          }
-        }
-      }
+     drdzeta(0,i)=(Right[i]-Left[i])/(Zeta_end-Zeta_start)
+      +Ampl_of_deviation*dpoly;
     }
   }
- 
  
  /// 2nd derivative of position Vector w.r.t. to coordinates:
  /// \f$ \frac{d^2R_i}{d \zeta_\alpha d \zeta_\beta}\f$ =
@@ -641,50 +582,13 @@ public:
  virtual void d2position(const Vector<double>& zeta,
                          RankThreeTensor<double>& ddrdzeta) const
   {
-   double fract=(zeta[0]-Zeta_start)/(Zeta_end-Zeta_start);
+   double poly=0.0;
+   double dpoly=2.0;
+   double d2poly=2.0;
+   polynomial(zeta[0],poly,dpoly,d2poly);
    for (unsigned i=0;i<2;i++)
     {
-     ddrdzeta(0,0,i)=0.0;
-     if (Zeros_in_interval)
-      {
-       // Clever trick from recursive definition of polynomial
-       // and its derivatives (thanks, ChatGPT)
-       double P  = 1.0;
-       double P1 = 0.0;
-       double P2 = 0.0;
-       for (unsigned ii=0;ii<M_poly_dev+2;ii++)
-        {
-         double fract_zero=double(ii)/double(M_poly_dev+1);
-         double d = fract - fract_zero;         
-         P2 = d * P2 + 2.0 * P1;
-         P1 = d * P1 + P;
-         P  = d * P;
-        }
-       ddrdzeta(0,0,i)+=Ampl_of_deviation/pow((Zeta_end-Zeta_start),2)*P2;
-      }
-     else
-      {
-       for (unsigned p=0;p<M_poly_dev;p++)
-        {
-         double sum=
-          (     -1.0)*Fm_minus_2[p][i]*pow(fract,p)+
-          (     -1.0)*Fm_minus_2[p][i]*pow(fract,p);
-         if (p>0)
-          {
-           sum+=
-            (1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
-            fract*(     -1.0)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
-            (1.0-fract)*Fm_minus_2[p][i]*p*pow(fract,p-1)+
-            fract*(-1.0     )*Fm_minus_2[p][i]*p*pow(fract,p-1);
-           if (p>1)
-            {
-             sum+=
-              fract*(1.0-fract)*Fm_minus_2[p][i]*p*(p-1)*pow(fract,p-2);
-            }
-          }
-         ddrdzeta(0,0,i)+=sum/pow((Zeta_end-Zeta_start),2);
-        }
-      }
+     ddrdzeta(0,0,i)=Ampl_of_deviation*d2poly;
     }
   }
  
@@ -720,6 +624,35 @@ public:
 
 private:
 
+
+ /// Third of fifth order polynomial and derivs
+ void polynomial(const double& zeta, double& poly, double& dpoly, double& d2poly) const
+  {
+
+   double zeta_start=Zeta_start;
+   double zeta_end=Zeta_end;
+   
+   if (M_poly==3)
+    {
+     
+     poly = 0.27e2 / 0.2e1 * pow(zeta_end - zeta_start, -0.3e1) * (zeta - zeta_start) * (zeta - zeta_end) * (zeta - zeta_start / 0.3e1 - 0.2e1 / 0.3e1 * zeta_end);
+     dpoly = 0.27e2 / 0.2e1 * pow(zeta_end - zeta_start, -0.3e1) * (zeta - zeta_end) * (zeta - zeta_start / 0.3e1 - 0.2e1 / 0.3e1 * zeta_end) + 0.27e2 / 0.2e1 * pow(zeta_end - zeta_start, -0.3e1) * (zeta - zeta_start) * (zeta - zeta_start / 0.3e1 - 0.2e1 / 0.3e1 * zeta_end) + 0.27e2 / 0.2e1 * pow(zeta_end - zeta_start, -0.3e1) * (zeta - zeta_start) * (zeta - zeta_end);
+     d2poly = 0.27e2 * pow(zeta_end - zeta_start, -0.3e1) * (zeta - zeta_start / 0.3e1 - 0.2e1 / 0.3e1 * zeta_end) + 0.27e2 * pow(zeta_end - zeta_start, -0.3e1) * (zeta - zeta_end) + 0.27e2 * pow(zeta_end - zeta_start, -0.3e1) * (zeta - zeta_start);
+    }
+   else if (M_poly==5)
+    {
+     poly = -0.128e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_start) * (zeta - zeta_end) * (zeta - zeta_start / 0.2e1 - zeta_end / 0.2e1) * (zeta - zeta_start / 0.4e1 - 0.3e1 / 0.4e1 * zeta_end);
+     dpoly = -0.128e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_end) * (zeta - zeta_start / 0.2e1 - zeta_end / 0.2e1) * (zeta - zeta_start / 0.4e1 - 0.3e1 / 0.4e1 * zeta_end) - 0.128e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_start) * (zeta - zeta_start / 0.2e1 - zeta_end / 0.2e1) * (zeta - zeta_start / 0.4e1 - 0.3e1 / 0.4e1 * zeta_end) - 0.128e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_start) * (zeta - zeta_end) * (zeta - zeta_start / 0.4e1 - 0.3e1 / 0.4e1 * zeta_end) - 0.128e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_start) * (zeta - zeta_end) * (zeta - zeta_start / 0.2e1 - zeta_end / 0.2e1);
+     d2poly = -0.256e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_start / 0.2e1 - zeta_end / 0.2e1) * (zeta - zeta_start / 0.4e1 - 0.3e1 / 0.4e1 * zeta_end) - 0.256e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_end) * (zeta - zeta_start / 0.4e1 - 0.3e1 / 0.4e1 * zeta_end) - 0.256e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_end) * (zeta - zeta_start / 0.2e1 - zeta_end / 0.2e1) - 0.256e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_start) * (zeta - zeta_start / 0.4e1 - 0.3e1 / 0.4e1 * zeta_end) - 0.256e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_start) * (zeta - zeta_start / 0.2e1 - zeta_end / 0.2e1) - 0.256e3 / 0.3e1 * pow(zeta_end - zeta_start, -0.4e1) * (zeta - zeta_start) * (zeta - zeta_end);
+    }
+   else
+    {
+     // hierher throw
+     abort();
+    }
+  }
+
+ 
  /// Left point 
  Vector<double> Left;
 
@@ -735,18 +668,12 @@ private:
  /// End coordinate
  double Zeta_end;
 
- /// Polynomial order for deviation from straight line
- unsigned M_poly_dev;
- 
- /// Polynomial coefficients: Fm_minus_2[p][i]
- Vector<Vector<double>> Fm_minus_2;
-
- /// Amplitude of deviation
+ /// Amplitude of deviation from straight line
  double Ampl_of_deviation;
 
- /// Choose polynomial so that zeros are located
- /// in relevant part of boundary coordinate
- bool Zeros_in_interval;
+ /// Polynomial order
+ unsigned M_poly;
+ 
 };
 
 
@@ -1218,135 +1145,89 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
      
  //Outer boundary
  //-------------
+ 
+ // Straight lines
+ Vector<double> left(2);
+ Vector<double> right(2);
+ double zeta_start = 0.0;
+ double zeta_end = 1.0;
+ unsigned nsegment=4;
+ 
+ 
+ // Storage for outer boundaries (for triangle)
+ Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(4);
+ 
+ // Right
+ left[0] = 1.0;
+ left[1] =-1.0;
+ right[0]= 1.0;
+ right[1]= 1.0;
+ 
  if (use_square_domain)
   {
-   // Straight lines
-   Vector<double> left(2);
-   Vector<double> right(2);
-   double zeta_start = 0.0;
-   double zeta_end = 1.0;
-   unsigned nsegment=4;
-
-    
-   // Storage for outer boundaries (for triangle)
-   Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(4);
-
-   // Right
-   left[0] = 1.0;
-   left[1] =-1.0;
-   right[0]= 1.0;
-   right[1]= 1.0;
    TwoDStraightLineFromTwoPoints* right_line_pt =
     new TwoDStraightLineFromTwoPoints(left,right,phi);
-    outer_curvilinear_boundary_pt[0] =
+   outer_curvilinear_boundary_pt[0] =
     new TriangleMeshCurviLine(right_line_pt, zeta_start,
                               zeta_end, nsegment, Outer_boundary0);
-  
-   // Top
-   left[0] = 1.0;
-   left[1] = 1.0;
-   right[0]=-1.0;
-   right[1]= 1.0;
-   TwoDStraightLineFromTwoPoints* top_line_pt =
-    new TwoDStraightLineFromTwoPoints(left,right,phi);
-    outer_curvilinear_boundary_pt[1] =
-    new TriangleMeshCurviLine(top_line_pt, zeta_start,
-                              zeta_end, nsegment, Outer_boundary1);
-   // Left
-   left[0] =-1.0;
-   left[1] = 1.0;
-   right[0]=-1.0;
-   right[1]=-1.0;
-   TwoDStraightLineFromTwoPoints* left_line_pt =
-    new TwoDStraightLineFromTwoPoints(left,right,phi);
-    outer_curvilinear_boundary_pt[2] =
-    new TriangleMeshCurviLine(left_line_pt, zeta_start,
-                              zeta_end, nsegment, Outer_boundary2);
-
-   // Bottom
-   left[0] =-1.0;
-   left[1] =-1.0;
-   right[0]= 1.0;
-   right[1]=-1.0;
-   TwoDStraightLineFromTwoPoints* bottom_line_pt =
-    new TwoDStraightLineFromTwoPoints(left,right,phi);
-    outer_curvilinear_boundary_pt[3] =
-    new TriangleMeshCurviLine(bottom_line_pt, zeta_start,
-                              zeta_end, nsegment, Outer_boundary3);
-     
-   // Combine
-   outer_boundary_pt =
-    new TriangleMeshClosedCurve(outer_curvilinear_boundary_pt);
-   
   }
  else
   {
-   double A = Parameters::A;
-   double B = Parameters::B;
-   Ellipse* outer_boundary_ellipse_pt = new Ellipse(A, B);
- 
-   // Storage for outer boundaries (for triangle)
-   Vector<TriangleMeshCurveSection*> outer_curvilinear_boundary_pt(4);
-
-   //First bit
-   double zeta_start = 0.0;
-   double zeta_end = 0.5*MathematicalConstants::Pi;
-
-   // Polynomial approximation for ellipse; matching at the end points
-   PolynomialApproxToEllipse* poly_approx_pt=new PolynomialApproxToEllipse
-    (outer_boundary_ellipse_pt,zeta_start,zeta_end,m_poly_actual_boundary);
- 
+   double ampl_of_deviation_from_straight_line=0.1;
+   
+   // 3rd/5th order polynomial
+   PolynomialLine* poly_pt=new PolynomialLine
+    (left,right,zeta_start,zeta_end,
+     ampl_of_deviation_from_straight_line,
+     m_poly_actual_boundary,phi);
+   
    unsigned nsegment = (unsigned)(MathematicalConstants::Pi/sqrt(Element_area));
    outer_curvilinear_boundary_pt[0] = 
-    new TriangleMeshCurviLine(poly_approx_pt, zeta_start,
+    new TriangleMeshCurviLine(poly_pt, zeta_start,
                               zeta_end, nsegment, Outer_boundary0);
+  }
  
  
-   //Second bit
+ // Top
+ left[0] = 1.0;
+ left[1] = 1.0;
+ right[0]=-1.0;
+ right[1]= 1.0;
+ TwoDStraightLineFromTwoPoints* top_line_pt =
+  new TwoDStraightLineFromTwoPoints(left,right,phi);
+ outer_curvilinear_boundary_pt[1] =
+  new TriangleMeshCurviLine(top_line_pt, zeta_start,
+                            zeta_end, nsegment, Outer_boundary1);
+ // Left
+ left[0] =-1.0;
+ left[1] = 1.0;
+ right[0]=-1.0;
+ right[1]=-1.0;
+ TwoDStraightLineFromTwoPoints* left_line_pt =
+  new TwoDStraightLineFromTwoPoints(left,right,phi);
+ outer_curvilinear_boundary_pt[2] =
+  new TriangleMeshCurviLine(left_line_pt, zeta_start,
+                            zeta_end, nsegment, Outer_boundary2);
+ 
+ // Bottom
+ left[0] =-1.0;
+ left[1] =-1.0;
+ right[0]= 1.0;
+ right[1]=-1.0;
+ TwoDStraightLineFromTwoPoints* bottom_line_pt =
+  new TwoDStraightLineFromTwoPoints(left,right,phi);
+ outer_curvilinear_boundary_pt[3] =
+  new TriangleMeshCurviLine(bottom_line_pt, zeta_start,
+                            zeta_end, nsegment, Outer_boundary3);
+ 
+ // Combine
+ outer_boundary_pt =
+  new TriangleMeshClosedCurve(outer_curvilinear_boundary_pt);
+ 
 
-   // Straight line
-   double zeta_start_next_curved=MathematicalConstants::Pi;
-   Vector<double> left(2);
-   Vector<double> zeta(1);
-   zeta[0]=zeta_end;
-   outer_boundary_ellipse_pt->position(zeta,left);
-   Vector<double> right(2);
-   zeta[0]=zeta_start_next_curved;
-   outer_boundary_ellipse_pt->position(zeta,right);
-   TwoDStraightLineFromTwoPoints* straight_line_pt =
-    new TwoDStraightLineFromTwoPoints(left,right);
- 
-   zeta_start = 0.5*MathematicalConstants::Pi;
-   zeta_end = MathematicalConstants::Pi;
-   outer_curvilinear_boundary_pt[1] =
-    new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
-                              zeta_end, nsegment, Outer_boundary1);
-  
-   
-   //Third bit
-   zeta_start = zeta_start_next_curved;
-   zeta_end = 1.5*MathematicalConstants::Pi;
-   outer_curvilinear_boundary_pt[2] = 
-    new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
-                              zeta_end, nsegment, Outer_boundary2);
- 
- 
-   //Fourth bit
-   zeta_start = 1.5*MathematicalConstants::Pi;
-   zeta_end = 2.0*MathematicalConstants::Pi;
-   outer_curvilinear_boundary_pt[3] =
-    new TriangleMeshCurviLine(outer_boundary_ellipse_pt, zeta_start,
-                              zeta_end, nsegment, Outer_boundary3);
- 
-   // Combine
-   outer_boundary_pt =
-    new TriangleMeshClosedCurve(outer_curvilinear_boundary_pt);
-   }
 
- 
- 
- //Create mesh parameters object
- TriangleMeshParameters mesh_parameters(outer_boundary_pt);
+//Create mesh parameters object
+TriangleMeshParameters mesh_parameters(outer_boundary_pt);
 
  // Element area
  mesh_parameters.element_area() = Element_area;
@@ -2016,9 +1897,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
              
              // Derivative of position Vector w.r.t. to zeta:
              curviline_pt->dposition(zeta, drdzeta);
-             curviline_pt->d2position(zeta, d2rdzeta2); //hierher wtf? This was dposition twice (Thank you Aidan!)
-
-#ifdef PARANOID
+             curviline_pt->d2position(zeta, d2rdzeta2); 
 
              // Check position as represented by boundary parametrisation
              curviline_pt->position(zeta,r_from_boundary);
@@ -2041,8 +1920,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                             << pos_error<< std::endl;
                // hierher throw
                oomph_info << error_stream.str();
-              }
-#endif
+              }             
              
             }
            // Bump
@@ -2612,7 +2490,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
                 << " curviline to within " << max_pos_error
                 << " < tol_pos = " << tol_pos << RESET << std::endl;
     }
-   oomph_info << std::endl;;
+   oomph_info << std::endl;
 
 
 
@@ -2629,8 +2507,9 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    double poly_fit_tol=1.0e-12;
    
    Vector<std::pair<double,double>> s_and_f(n_test);
-   Vector<Vector<std::pair<double,double>>> s_and_f_fitted_history;
-   
+   Vector<std::pair<Vector<std::pair<double,double>>,double>>
+    s_and_f_fitted_history;
+
    count=0;
    for (unsigned j=0;j<n_w_node;j++)
     { 
@@ -2646,7 +2525,10 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
         }
        likely_degree=PolynomialChecker::most_likely_polynomial_degree
         (s_and_f,max_degree,s_and_f_fitted_history,poly_fit_tol);
-       if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
+       if ((likely_degree==-1)&&(!(max<poly_fit_cutoff)))
+        {
+         oomph_info << BOLD_RED;
+        }
        oomph_info << "Along edge, nodal basis function j,k "
                   << j << " " << k 
                   << " (count = " << count << ") ";
@@ -2658,14 +2540,22 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        else
         {
          oomph_info << " is likely to be a polynomial of degree " 
-                    << likely_degree << " (f_max = " << max << ")";
+                    << likely_degree << " (f_max = " << max << ") "
+                    << "; max_errors during assessment : ";
+         for (unsigned p=0;p<max_degree;p++)
+          {
+           if (s_and_f_fitted_history[p].first.size()==n_test)
+            {
+             oomph_info << s_and_f_fitted_history[p].second << " ";
+            }
+          }
          oomph_info <<RESET << std::endl;
 
          //##############
          bool first=true;
          for (unsigned p=0;p<max_degree;p++)
           {
-           if (s_and_f_fitted_history[p].size()==n_test)
+           if (s_and_f_fitted_history[p].first.size()==n_test)
             {
              ofstream outfile;
              std::string filename=dir_name_for_output+
@@ -2678,8 +2568,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
               {
                outfile << s_and_f[i].first  << " "
                        << s_and_f[i].second << " "
-                       << s_and_f_fitted_history[p][i].first  << " "
-                       << s_and_f_fitted_history[p][i].second << " "
+                       << (s_and_f_fitted_history[p].first)[i].first  << " "
+                       << (s_and_f_fitted_history[p].first)[i].second << " "
                        << std::endl;
               }
              outfile.close();
@@ -2713,7 +2603,10 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
         }
        likely_degree=PolynomialChecker::most_likely_polynomial_degree
         (s_and_f,max_degree,s_and_f_fitted_history,poly_fit_tol);
-       if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
+       if ((likely_degree==-1)&&(!(max<poly_fit_cutoff)))
+        {
+         oomph_info << BOLD_RED;
+        }
        oomph_info << "Along edge, normal deriv of nodal basis function j,k "
                   << j << " " << k
                   << " (count = " << count << ") ";
@@ -2726,14 +2619,22 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        else
         {
          oomph_info << " is likely to be a polynomial of degree " 
-                    << likely_degree << " (f_max = " << max << ")";
+                    << likely_degree << " (f_max = " << max << ")"
+                    << "; max_errors during assessment : ";
+         for (unsigned p=0;p<max_degree;p++)
+          {
+           if (s_and_f_fitted_history[p].first.size()==n_test)
+            {
+             oomph_info << s_and_f_fitted_history[p].second << " ";
+            }
+          }
          oomph_info <<RESET << std::endl;
 
          //##############
          bool first=true;
          for (unsigned p=0;p<max_degree;p++)
           {
-           if (s_and_f_fitted_history[p].size()==n_test)
+           if (s_and_f_fitted_history[p].first.size()==n_test)
             {
              ofstream outfile;
              std::string filename=dir_name_for_output+
@@ -2746,8 +2647,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
               {
                outfile << s_and_f[i].first  << " "
                        << s_and_f[i].second << " "
-                       << s_and_f_fitted_history[p][i].first  << " "
-                       << s_and_f_fitted_history[p][i].second << " "
+                       << (s_and_f_fitted_history[p].first)[i].first  << " "
+                       << (s_and_f_fitted_history[p].first)[i].second << " "
                        << std::endl;
               }
              outfile.close();
@@ -2809,7 +2710,10 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
       }
      likely_degree=PolynomialChecker::most_likely_polynomial_degree
       (s_and_f,max_degree,s_and_f_fitted_history,poly_fit_tol);
-     if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
+     if ((likely_degree==-1)&&(!(max<poly_fit_cutoff)))
+      {
+       oomph_info << BOLD_RED;
+      }
      oomph_info << "Along edge, internal basis function k "
                 << k_type
                 << " (count = " << count  << ") ";
@@ -2822,7 +2726,15 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
      else
       {
        oomph_info << " is likely to be a polynomial of degree " 
-                  << likely_degree << " (f_max = " << max << ")";
+                  << likely_degree << " (f_max = " << max << ")"
+                  << "; max_errors during assessment : ";
+       for (unsigned p=0;p<max_degree;p++)
+        {
+         if (s_and_f_fitted_history[p].first.size()==n_test)
+          {
+           oomph_info << s_and_f_fitted_history[p].second << " ";
+          }
+        }
        oomph_info <<RESET << std::endl;
 
 
@@ -2830,7 +2742,7 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
        bool first=true;
        for (unsigned p=0;p<max_degree;p++)
         {
-         if (s_and_f_fitted_history[p].size()==n_test)
+         if (s_and_f_fitted_history[p].first.size()==n_test)
           {
            ofstream outfile;
            std::string filename=dir_name_for_output+
@@ -2842,8 +2754,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
             {
              outfile << s_and_f[i].first  << " "
                      << s_and_f[i].second << " "
-                     << s_and_f_fitted_history[p][i].first  << " "
-                     << s_and_f_fitted_history[p][i].second << " "
+                     << (s_and_f_fitted_history[p].first)[i].first  << " "
+                     << (s_and_f_fitted_history[p].first)[i].second << " "
                      << std::endl;
             }
            outfile.close();
@@ -2896,7 +2808,10 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
       }
      likely_degree=PolynomialChecker::most_likely_polynomial_degree
       (s_and_f,max_degree,s_and_f_fitted_history,poly_fit_tol);
-     if ((likely_degree==-1)&&(!(max<poly_fit_cutoff))) oomph_info << BOLD_RED;
+     if ((likely_degree==-1)&&(!(max<poly_fit_cutoff)))
+      {
+       oomph_info << BOLD_RED;
+      }
      oomph_info << "Along edge, normal deriv of internal basis function k "
                 << k_type
                 << " (count = " << count  << ") ";
@@ -2909,14 +2824,22 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
      else
       {
        oomph_info << " is likely to be a polynomial of degree " 
-                  << likely_degree << " (f_max = " << max << ")";
+                  << likely_degree << " (f_max = " << max << ")"
+                    << "; max_errors during assessment : ";
+         for (unsigned p=0;p<max_degree;p++)
+          {
+           if (s_and_f_fitted_history[p].first.size()==n_test)
+            {
+             oomph_info << s_and_f_fitted_history[p].second << " ";
+            }
+          }
        oomph_info <<RESET << std::endl;
        
        //##############
        bool first=true;
        for (unsigned p=0;p<max_degree;p++)
         {
-         if (s_and_f_fitted_history[p].size()==n_test)
+         if (s_and_f_fitted_history[p].first.size()==n_test)
           {
            ofstream outfile;
            std::string filename=dir_name_for_output+
@@ -2928,8 +2851,8 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
             {
              outfile << s_and_f[i].first  << " "
                      << s_and_f[i].second << " "
-                     << s_and_f_fitted_history[p][i].first  << " "
-                     << s_and_f_fitted_history[p][i].second << " "
+                     << (s_and_f_fitted_history[p].first)[i].first  << " "
+                     << (s_and_f_fitted_history[p].first)[i].second << " "
                      << std::endl;
             }
            outfile.close();
@@ -3621,16 +3544,34 @@ int main(int argc, char** argv)
      
      
      // Check up to max degree
-     Vector<Vector<std::pair<double,double>>> s_and_f_fitted_history;
+     
+     //Vector<Vector<std::pair<double,double>>> s_and_f_fitted_history;
+     Vector<std::pair<Vector<std::pair<double,double>>,double>>
+      s_and_f_fitted_history;
      int likely_degree=PolynomialChecker::most_likely_polynomial_degree
       (s_and_f,max_degree,s_and_f_fitted_history);
      
+     oomph_info << "Actual/most likely degree of polynomial: "
+                << degree << " " << likely_degree
+                << "; max_errors during assessment : ";
+     for (unsigned p=0;p<max_degree;p++)
+      {
+       if (s_and_f_fitted_history[p].first.size()==nsample)
+        {
+         oomph_info << s_and_f_fitted_history[p].second << " ";
+        }
+      }
+     oomph_info << std::endl;
+
+
+         
      ofstream outfile;
      bool first=true;
      for (unsigned p=0;p<max_degree;p++)
       {
-       if (s_and_f_fitted_history[p].size()==nsample)
+       if (s_and_f_fitted_history[p].first.size()==nsample)
         {
+         oomph_info << s_and_f_fitted_history[p].second << " ";
          std::string filename="test_poly_of_degree"+
           to_string(degree)+"_fit_p"+to_string(p)+".dat";
          outfile.open(filename);
@@ -3638,8 +3579,8 @@ int main(int argc, char** argv)
           {
            outfile << s_and_f[i].first  << " "
                    << s_and_f[i].second << " "
-                   << s_and_f_fitted_history[p][i].first  << " "
-                   << s_and_f_fitted_history[p][i].second << " "
+                   << (s_and_f_fitted_history[p].first)[i].first  << " "
+                   << (s_and_f_fitted_history[p].first)[i].second << " "
                    << std::endl;
           }
          outfile.close();
@@ -3658,7 +3599,7 @@ int main(int argc, char** argv)
           }
         }
       }
-
+     oomph_info << std::endl;
 
          
      if (int(degree)!=likely_degree)
@@ -3678,8 +3619,6 @@ int main(int argc, char** argv)
    oomph_info << std::endl;
    
   }
-
-  //exit(0);
 
   // Test 1: From the very bottom: Monomials are OK
   validate_monomials_to_basic_basis_functions<5>();
@@ -3719,7 +3658,7 @@ int main(int argc, char** argv)
          << "==================================================="
          << RESET << std::endl;
          
-        bool use_square_domain=true;      
+        bool use_square_domain=false;      
         problem_level_test(b,
                            use_square_domain,
                            phi);

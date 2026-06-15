@@ -1,0 +1,30 @@
+with(CodeGeneration):
+
+zeta_zilch:=zeta_start+2/3*(zeta_end-zeta_start);
+zeta_eval :=zeta_start+1/3*(zeta_end-zeta_start);
+P3:=A*(zeta-zeta_start)*(zeta-zeta_end)*(zeta-zeta_zilch);
+
+A_value:=solve(subs(zeta=zeta_eval,P3)=1,A);
+plot(subs(zeta_start = 0, zeta_end = 1.0, subs(A = A_value, P3)), zeta = 0 .. 1);
+
+
+zeta_zilch1:=zeta_start+1/2*(zeta_end-zeta_start);
+zeta_zilch2:=zeta_start+3/4*(zeta_end-zeta_start);
+zeta_eval:=zeta_start+1/4*(zeta_end-zeta_start);
+
+P5:=B*(zeta-zeta_start)*(zeta-zeta_end)*(zeta-zeta_zilch1)*(zeta-zeta_zilch2);
+
+B_value:=solve(subs(zeta=zeta_eval,P5)=1,B);
+plot(subs(zeta_start = 0, zeta_end = 1.0, subs(B = B_value, P5)), zeta = 0 .. 1);
+
+
+
+C(subs(A=A_value,P3),resultname=poly);
+C(subs(A=A_value,diff(P3,zeta)),resultname=dpoly);
+C(subs(A=A_value,diff(P3,zeta$2)),resultname=d2poly);
+
+
+C(subs(B=B_value,P5),resultname=poly);
+C(subs(B=B_value,diff(P5,zeta)),resultname=dpoly);
+C(subs(B=B_value,diff(P5,zeta$2)),resultname=d2poly);
+
