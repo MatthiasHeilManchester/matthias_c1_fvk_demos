@@ -37,14 +37,22 @@ cp $important_files $main_dir
 cd $main_dir
 
 dir_list="
-RESLT_boundary_order3_phi0.0_unrotated_coordinates 
-RESLT_boundary_order3_phi0.3_unrotated_coordinates 
-RESLT_boundary_order3_phi0.0_rotated_coordinates 
-RESLT_boundary_order3_phi0.3_rotated_coordinates 
-RESLT_boundary_order5_phi0.0_unrotated_coordinates 
-RESLT_boundary_order5_phi0.3_unrotated_coordinates 
-RESLT_boundary_order5_phi0.0_rotated_coordinates 
-RESLT_boundary_order5_phi0.3_rotated_coordinates"
+RESLT_actual_boundary_order3_boundary_order3_phi0.0_unrotated_coordinates 
+RESLT_actual_boundary_order3_boundary_order3_phi0.3_unrotated_coordinates 
+RESLT_actual_boundary_order3_boundary_order3_phi0.0_rotated_coordinates 
+RESLT_actual_boundary_order3_boundary_order3_phi0.3_rotated_coordinates 
+RESLT_actual_boundary_order3_boundary_order5_phi0.0_unrotated_coordinates 
+RESLT_actual_boundary_order3_boundary_order5_phi0.3_unrotated_coordinates 
+RESLT_actual_boundary_order3_boundary_order5_phi0.0_rotated_coordinates 
+RESLT_actual_boundary_order3_boundary_order5_phi0.3_rotated_coordinates
+RESLT_actual_boundary_order5_boundary_order3_phi0.0_unrotated_coordinates 
+RESLT_actual_boundary_order5_boundary_order3_phi0.3_unrotated_coordinates 
+RESLT_actual_boundary_order5_boundary_order3_phi0.0_rotated_coordinates 
+RESLT_actual_boundary_order5_boundary_order3_phi0.3_rotated_coordinates 
+RESLT_actual_boundary_order5_boundary_order5_phi0.0_unrotated_coordinates 
+RESLT_actual_boundary_order5_boundary_order5_phi0.3_unrotated_coordinates 
+RESLT_actual_boundary_order5_boundary_order5_phi0.0_rotated_coordinates 
+RESLT_actual_boundary_order5_boundary_order5_phi0.3_rotated_coordinates"
 
 for dir in $dir_list; do
     mkdir $dir
@@ -52,7 +60,9 @@ done
 
 
 # Do it
-./$executable $args > OUTPUT 
+./$executable $args > OUTPUT
+
+exit
 
 home_dir=`pwd`
 for dir in $dir_list; do
