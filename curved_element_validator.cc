@@ -631,8 +631,13 @@ private:
 
    double zeta_start=Zeta_start;
    double zeta_end=Zeta_end;
-   
-   if (M_poly==3)
+   if (M_poly==0)
+    {
+     poly=0.0;
+     dpoly=0.0;
+     d2poly=0.0;
+    }
+   else if (M_poly==3)
     {
      
      poly = 0.27e2 / 0.2e1 * pow(zeta_end - zeta_start, -0.3e1) * (zeta - zeta_start) * (zeta - zeta_end) * (zeta - zeta_start / 0.3e1 - 0.2e1 / 0.3e1 * zeta_end);
@@ -889,7 +894,6 @@ public:
  UnstructuredC1PlateProblem(double const& element_area,
                             const unsigned& m_poly_actual_boundary,
                             const unsigned& boundary_order,
-                            bool use_square_domain,
                             const double& phi);
 
   /// Destructor
@@ -1118,7 +1122,6 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
 (const double& element_area,
  const unsigned& actual_boundary_order,
  const unsigned& boundary_order,
- bool use_square_domain,
  const double& phi)
  : Element_area(element_area)
 {
@@ -1166,7 +1169,9 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
  left[1] =-1.0;
  right[0]= 1.0;
  right[1]= 1.0;
- 
+
+ // hierher remove altogether
+ bool use_square_domain=false;
  if (use_square_domain)
   {
    TwoDStraightLineFromTwoPoints* right_line_pt =
@@ -1179,7 +1184,7 @@ UnstructuredC1PlateProblem<ELEMENT>::UnstructuredC1PlateProblem
   {
    double ampl_of_deviation_from_straight_line=0.1;
    
-   // 3rd/5th order polynomial
+   // 0th/3rd/5th order polynomial
    PolynomialLine* poly_pt=new PolynomialLine
     (left,right,zeta_start,zeta_end,
      ampl_of_deviation_from_straight_line,
@@ -2521,10 +2526,10 @@ void UnstructuredC1PlateProblem<ELEMENT>::validate_curved_bell_and_bubble_basis_
    int likely_degree=0;
    
    // Cut-off for ignoring poly fit
-   double poly_fit_cutoff=1.0e-12;
+   double poly_fit_cutoff=1.0e-10; // hierher 1.0e-12;
 
    // Tolerance for poly fit (1e-12 by default)
-   double poly_fit_tol=1.0e-12;
+   double poly_fit_tol=1.0e-10; // hierher 1.0e-12;
    
    Vector<std::pair<double,double>> s_and_f(n_test);
    Vector<std::pair<Vector<std::pair<double,double>>,double>>
@@ -3427,15 +3432,12 @@ if (plot_em)
 // and rotation angle (only used for square domain)
 void problem_level_test(const unsigned& actual_boundary_order,
                         const unsigned& boundary_order,
-                        bool use_square_domain,
                         const double& phi)
 {
  
  // Build problem  
  UnstructuredC1PlateProblem<FoepplVonKarmanC1CurvableBellElement<4>> problem(
-  Parameters::Element_area,actual_boundary_order,boundary_order,
-  use_square_domain, phi);
- 
+  Parameters::Element_area,actual_boundary_order,boundary_order,phi);
  
  // Document the initial state
  problem.doc_solution();
@@ -3588,8 +3590,9 @@ int main(int argc, char** argv)
   validate_monomials_to_basic_basis_functions<5>();
   validate_monomials_to_basic_basis_functions<3>();
 
-  // Loop over actual boundary order
-  for (unsigned b_actual=3;b_actual<6;b_actual+=2)
+  // Loop over actual boundary order.
+  Vector<unsigned> b_poly_actual={0,3,5};
+  for (unsigned b_actual : b_poly_actual)
    {
     // Loop over boundary order
     for (unsigned b=3;b<6;b+=2)
@@ -3625,11 +3628,8 @@ int main(int argc, char** argv)
            << "\n======================================================"
            << "==================================================="
            << RESET << std::endl;
-          
-          bool use_square_domain=false;      
-          problem_level_test(b_actual,b,
-                             use_square_domain,
-                             phi);
+
+          problem_level_test(b_actual,b,phi);
          }
        }
      }
