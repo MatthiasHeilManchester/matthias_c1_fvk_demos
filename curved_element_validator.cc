@@ -29,9 +29,6 @@
 //LIC//====================================================================
 #include <fenv.h>
 
-#include<format>
-#include <random>
-
 //Generic routines
 #include "generic.h"
 
@@ -55,19 +52,6 @@ using MathematicalConstants::Pi;
 #define RESET       "\033[0m"
 
 
-
-
-// Random number between 0 and 1
-namespace Random
-{
- double random_between_zero_and_one()
- {
-  static std::mt19937 gen(12345); // note this is static so will only be executed once! 
-  static std::uniform_real_distribution<double> dist(0.0, 1.0);
-  return dist(gen);
- }
- 
-}
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////
